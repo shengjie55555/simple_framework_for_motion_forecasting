@@ -33,7 +33,10 @@ def load_seq_save_features(args: Any, start_idx: int, batch_size: int, sequences
     else:
         dataset = vectornet_preprocess.PreProcess(args)
 
-    for seq in sequences[start_idx: start_idx + batch_size]:
+    sample_loop = tqdm(enumerate(sequences[start_idx: start_idx + batch_size]),
+                       total=len(sequences[start_idx: start_idx + batch_size]),
+                       desc="Processing", leave=False)
+    for _, seq in sample_loop:
         if not seq.endswith(".csv"):
             continue
 
@@ -68,7 +71,7 @@ def main():
     os.makedirs(save_dir, exist_ok=True)
     print("save processed dataset to {}".format(save_dir))
 
-    Parallel(n_jobs=n_proc)(delayed(load_seq_save_features(args, i, batch_size, sequences, save_dir))
+    Parallel(n_jobs=n_proc)(delayed(load_seq_save_features)(args, i, batch_size, sequences, save_dir)
                             for i in range(0, num_sequences, batch_size))
 
     print("Preprocess for {} set completed in {} minutes".format(args.mode, (time.time() - start) / 60.0))

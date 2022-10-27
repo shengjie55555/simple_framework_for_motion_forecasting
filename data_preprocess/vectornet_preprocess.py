@@ -278,7 +278,9 @@ class PreProcess(object):
             lane = lanes[lane_id]
 
             # ~ resample centerline
-            cl_raw = lane.centerline
+            cl_raw = copy.deepcopy(lane.centerline)
+            if cl_raw.shape[0] != 10:
+                continue
             cl_raw[:, 0:2] = (cl_raw[:, 0:2] - orig).dot(rot)
 
             ctrs.append(cl_raw.mean(axis=0, keepdims=True))  # middle point
