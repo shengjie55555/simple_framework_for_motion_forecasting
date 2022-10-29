@@ -57,8 +57,10 @@ def create_dirs(cfg):
     f.close()
     # train & val log
     df = pd.DataFrame(columns=cfg["log_columns"])
-    df.to_csv(cfg["train_log"], index=False)
-    df.to_csv(cfg["val_log"], index=False)
+    if not os.path.exists(cfg["train_log"]):
+        df.to_csv(cfg["train_log"], index=False)
+    if not os.path.exists(cfg["val_log"]):
+        df.to_csv(cfg["val_log"], index=False)
 
 
 def save_log(epoch, post_loss, post_metrics, cfg, mode="train"):
