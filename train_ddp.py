@@ -31,6 +31,8 @@ def get_args():
     parser.add_argument("--val_batch_size", default=1, type=int, help="Val batch size.")
     parser.add_argument("--train_epochs", default=32, type=int, help="Number of epochs for training.")
     parser.add_argument("--num_val", default=2, type=int, help="Validation intervals.")
+    parser.add_argument("--num_display", default=10, type=int, help="Logger interval.")
+    parser.add_argument("--workers", default=0, type=int, help="Number of workers for loading data.")
     parser.add_argument("--model", default="VectorNet", type=str, help="Name of the selected model.")
     parser.add_argument("--use_cuda", default=True, type=bool, help="Use CUDA for acceleration.")
     parser.add_argument('--devices', default='0', type=str, help='GPU devices.')
@@ -56,6 +58,8 @@ def update_cfg(args):
     cfg["processed_train"] = args.train_dir
     cfg["processed_val"] = args.val_dir
     cfg["num_val"] = args.num_val
+    cfg["num_display"] = args.num_display
+    cfg["train_workers"] = args.workers
 
 
 def main():

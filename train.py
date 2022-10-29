@@ -29,6 +29,8 @@ def get_args():
     parser.add_argument("--val_batch_size", default=1, type=int, help="Val batch size.")
     parser.add_argument("--train_epochs", default=32, type=int, help="Number of epochs for training.")
     parser.add_argument("--num_val", default=2, type=int, help="Validation intervals.")
+    parser.add_argument("--num_display", default=10, type=int, help="Logger interval.")
+    parser.add_argument("--workers", default=0, type=int, help="Number of workers for loading data.")
     parser.add_argument("--model", default="VectorNet", type=str, help="Name of the selected model.")
     parser.add_argument("--use_cuda", default=True, type=bool, help="Use CUDA for acceleration.")
     parser.add_argument("--logger_writer", action="store_true", default=False, help="Enable Tensorboard.")
@@ -53,6 +55,8 @@ def update_cfg(args):
     cfg["processed_train"] = args.train_dir
     cfg["processed_val"] = args.val_dir
     cfg["num_val"] = args.num_val
+    cfg["num_display"] = args.num_display
+    cfg["train_workers"] = args.workers
 
 
 def val(config, data_loader, net, loss_net, logger, vis, epoch, rank=0):
@@ -128,17 +132,19 @@ def main():
 
     # resume
     start_epoch = 0
+    n_iter = 0
     if args.resume:
         if not args.model_path.endswith(".pth"):
             assert False, "Model path error - {}".format(args.model_path)
         else:
             start_epoch = int(os.path.basename(args.model_path).split(".")[0])
+            n_iter = len(train_loader) * start_epoch
             load_prev_weights(net, args.model_path, cfg, optimizer)
+            print("Training from checkpoint: {} - {}".format(start_epoch, n_iter))
     else:
         print("Training from beginning!")
 
     # training
-    n_iter = 0
     vis = Vis()
     epoch_loop = tqdm(range(start_epoch, cfg["epoch"]), leave=True)
     for epoch in epoch_loop:
