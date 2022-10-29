@@ -7,8 +7,12 @@ __pycache__/
 .idea
 .vscode
 
+# logs & weights
+logs/
+results/
+
 # data
-/processed
+processed/
 
 # C extensions
 *.so
