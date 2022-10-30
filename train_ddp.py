@@ -88,8 +88,7 @@ def main():
         device = torch.device('cpu')
 
     # tensorboard logger
-    if dist.get_rank() == 0:
-        logger = Logger(enable=args.logger_writer, log_dir=cfg["log_dir"])
+    logger = Logger(enable=args.logger_writer, log_dir=cfg["log_dir"])
 
     # dataset & dataloader
     train_set = ProcessedDataset(cfg["processed_train"], mode="train")
@@ -176,7 +175,7 @@ def main():
             save_ckpt(net, optimizer, round(epoch), cfg["save_dir"])
 
         if round(epoch) % cfg['num_val'] == 0:
-            val(cfg, val_loader, net, loss_net, logger, vis, round(epoch))
+            val(cfg, val_loader, net, loss_net, logger, vis, round(epoch), dist.get_rank())
 
 
 if __name__ == "__main__":
