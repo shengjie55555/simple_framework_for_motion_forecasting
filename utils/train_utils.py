@@ -1,4 +1,5 @@
 import os.path
+import importlib
 
 import torch
 import random
@@ -130,3 +131,22 @@ class AverageMetrics(object):
         }
 
         return metrics_out
+
+
+def load_model(model_name):
+    class_dict = {
+        "vectornet": "VectorNet",
+        "lanegcn": "LaneGCN",
+        "mhl": "MHL"
+    }
+    assert model_name in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl"], \
+        '{} is not in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl"]'.format(model_name)
+    model_name = model_name.lower()
+    package_name = "model"
+    module_name = model_name
+    class_name = class_dict[model_name]
+
+    module = importlib.import_module(".{}".format(module_name), package=package_name)
+    assert hasattr(module, class_name), "class {} is not in {}".format(class_name, module_name)
+    cls = getattr(module, class_name)
+    return cls

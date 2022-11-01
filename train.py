@@ -10,7 +10,8 @@ from utils.data_utils import collate_fn, create_dirs, save_log
 from utils.dataset import ProcessedDataset
 from utils.logger import Logger
 from utils.train_utils import worker_init_fn, init_seeds, load_prev_weights, AverageLoss, AverageMetrics, save_ckpt
-from model.vectornet import VectorNet, Loss
+from utils.train_utils import load_model
+from model.loss import Loss
 from config.cfg_vectornet import config as cfg
 
 warnings.filterwarnings("ignore")
@@ -124,7 +125,8 @@ def main():
                             collate_fn=collate_fn)
 
     # model & training strategy
-    net = VectorNet(cfg, device).to(device)
+    model = load_model(args.model)
+    net = model(cfg, device).to(device)
     loss_net = Loss(cfg, device).to(device)
     optimizer = torch.optim.Adam(net.parameters(), lr=cfg["lr"])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=cfg["milestones"],
