@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from einops import repeat, rearrange
+from model.decoder import SimpleDecoder as Decoder
 from model.layers import Linear, LinearRes
 from utils.data_utils import gpu
 
@@ -14,7 +15,7 @@ class MHL(nn.Module):
         self.device = device
         self.agent_encoder = AgentEncoder(a_dim, out_dim, a_num_layer)
         self.interaction_encoder = InteractionEncoder(out_dim)
-        self.decoder = Decoder(out_dim, num_mode, pred_len)
+        self.decoder = Decoder(out_dim, num_mode, pred_len, is_cat=True)
 
     def forward(self, data):
         agents, agent_ids, agent_ctrs = agent_gather(gpu(data["trajs_obs"], self.device),
@@ -22,7 +23,8 @@ class MHL(nn.Module):
         agents = self.agent_encoder(agents)
         i_agents = self.interaction_encoder(agents, agent_ids)
 
-        reg, cls = self.decoder(agents, i_agents)
+        agents = torch.cat([agents, i_agents], dim=-1)
+        reg, cls = self.decoder(agents)
 
         out = dict()
         out['cls'], out['reg'] = [], []
@@ -142,39 +144,3 @@ class InteractionEncoder(nn.Module):
         nodes = self.relu(nodes + res)
 
         return nodes
-
-
-class Decoder(nn.Module):
-    def __init__(self, out_dim, num_mode, pred_len):
-        super(Decoder, self).__init__()
-        self.out_dim = out_dim
-        self.num_mode = num_mode
-        self.pred_len = pred_len
-
-        self.traj_decoder = nn.ModuleList(nn.Sequential(
-            LinearRes(2 * out_dim, out_dim, out_dim),
-            nn.Linear(out_dim, self.pred_len * 2, bias=False)
-        ) for _ in range(num_mode))
-
-        self.score_decoder = nn.ModuleDict({
-            "goal": Linear(2, out_dim),
-            "score": nn.Sequential(
-                LinearRes(3 * out_dim, out_dim, out_dim),
-                nn.Linear(out_dim, 1, bias=False),
-                nn.Softmax(dim=-2)
-            ),
-        })
-
-    def forward(self, agents, i_agents):
-        agents = torch.cat([agents, i_agents], dim=-1)
-        preds = []
-        for i in range(self.num_mode):
-            preds.append(self.traj_decoder[i](agents))
-        reg = torch.cat([pred.unsqueeze(-2) for pred in preds]).view(agents.shape[0], self.num_mode, self.pred_len, -1)
-
-        goals = reg[:, :, -1].detach()
-        goals = self.score_decoder["goal"](goals)
-        agents = torch.cat([repeat(agents, "n d -> n h d", h=self.num_mode), goals], dim=-1)
-        cls = self.score_decoder["score"](agents).squeeze(-1)
-
-        return reg, cls
