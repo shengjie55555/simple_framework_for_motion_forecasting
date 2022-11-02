@@ -76,9 +76,9 @@ def val(config, data_loader, net, loss_net, logger, vis, epoch, rank=0):
             if (i + 1) % 100 == 0 and rank == 0:
                 vis.draw(batch, out, cfg, save=True, show=False)
 
+        post_loss = average_loss.get()
+        post_metrics = average_metrics.get()
         if rank == 0:
-            post_loss = average_loss.get()
-            post_metrics = average_metrics.get()
             logger.add_dict(post_loss, epoch, "val_")
             logger.add_dict(post_metrics, epoch, "val_")
             save_log(epoch, post_loss, post_metrics, config, mode="val")
