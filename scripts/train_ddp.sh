@@ -9,5 +9,6 @@ torchrun --nproc_per_node=1 --master_port 29501 train_ddp.py \
   --logger_writer \
   --num_display 10 \
   --workers 0 \
+  --model atds
 #  --resume \
 #  --model_path results/vectornet_20221029_115425/weights/1.pth

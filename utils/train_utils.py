@@ -137,10 +137,11 @@ def load_model(model_name):
     class_dict = {
         "vectornet": "VectorNet",
         "lanegcn": "LaneGCN",
-        "mhl": "MHL"
+        "mhl": "MHL",
+        "atds": "ATDS"
     }
-    assert model_name in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl"], \
-        '{} is not in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl"]'.format(model_name)
+    assert model_name in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"], \
+        '{} is not in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"]'.format(model_name)
     model_name = model_name.lower()
     package_name = "model"
     module_name = model_name
