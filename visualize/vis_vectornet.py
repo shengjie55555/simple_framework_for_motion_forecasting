@@ -25,12 +25,14 @@ class Vis(object):
         ax.plot(trajs_obs[:, 0], trajs_obs[:, 1], "-", color=self.color_dict["AV"], linewidth=1)
         ax.plot(trajs_obs[-1, 0], trajs_obs[-1, 1], "o", color=self.color_dict["AV"], linewidth=1)
 
-    def plot_agent_trajs(self, ax, trajs_fut, trajs_obs, preds):
+    def plot_agent_trajs(self, ax, trajs_fut, trajs_obs, preds, cls):
         ax.plot(trajs_obs[:, 0], trajs_obs[:, 1], "-", color=self.color_dict["AGENT"], linewidth=1)
         ax.plot(trajs_obs[-1, 0], trajs_obs[-1, 1], "o", color=self.color_dict["AGENT"], linewidth=1)
         ax.plot(trajs_fut[:, 0], trajs_fut[:, 1], "-", color=self.color_dict["AGENT"], linewidth=1)
+        ax.scatter(trajs_fut[-1, 0], trajs_fut[-1, 1], marker="X", color=self.color_dict["AGENT"])
         for i in range(preds.shape[0]):
             ax.plot(preds[i, :, 0], preds[i, :, 1], "-", alpha=0.5, color='b', linewidth=1)
+            ax.scatter(preds[i, -1, 0], preds[i, -1, 1], marker="X", alpha=cls[i], color='b')
 
     def plot_lane_graph(self, ax, lanes):
         for cl in lanes:
@@ -52,6 +54,7 @@ class Vis(object):
         trajs_agent_fut = data["trajs_fut"][0][0].detach().cpu().numpy().dot(rot.T) + orig
         trajs_agent_obs = data["trajs_obs"][0][0].detach().cpu().numpy().dot(rot.T) + orig
         preds = post_out['reg'][0][0].detach().cpu().numpy().dot(rot.T) + orig
+        cls = post_out["cls"][0][0].detach().cpu().numpy()
 
         lanes = data["graph"][0]["feats"].detach().cpu().numpy()
         lanes[:, :, :2] = lanes[:, :, :2].dot(rot.T) + np.expand_dims(orig, axis=0)
@@ -68,7 +71,7 @@ class Vis(object):
         ax.set_ylim(y_min, y_max)
 
         self.plot_lane_graph(ax, lanes)
-        self.plot_agent_trajs(ax, trajs_agent_fut, trajs_agent_obs, preds)
+        self.plot_agent_trajs(ax, trajs_agent_fut, trajs_agent_obs, preds, cls)
         self.plot_av_trajs(ax, trajs_av)
         self.plot_obs_trajs(ax, trajs_obs, pad_obs)
         if save:
