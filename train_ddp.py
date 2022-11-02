@@ -4,17 +4,15 @@ import torch
 import warnings
 import torch.distributed as dist
 from tqdm import tqdm
-from datetime import datetime
 from torch.utils.data import DataLoader
 from visualize.vis_vectornet import Vis
 from utils.data_utils import collate_fn, create_dirs, save_log
 from utils.dataset import ProcessedDataset
 from utils.logger import Logger
 from utils.train_utils import worker_init_fn, init_seeds, load_prev_weights, AverageLoss, AverageMetrics, save_ckpt
-from utils.train_utils import load_model
+from utils.train_utils import load_model, load_config, update_cfg
 from model.loss import Loss
 from train import val
-from config.cfg_vectornet import config as cfg
 
 warnings.filterwarnings("ignore")
 
@@ -44,28 +42,9 @@ def get_args():
     return args
 
 
-def update_cfg(args):
-    model_name = args.model.lower() + "_" + datetime.now().strftime("%Y%m%d_%H%M%S")
-    cfg["epoch"] = args.train_epochs
-    cfg["train_batch_size"] = args.train_batch_size
-    cfg["val_batch_size"] = args.val_batch_size
-    cfg["save_dir"] = os.path.join("results", model_name, "weights/")
-    cfg["cfg"] = os.path.join("results", model_name, "cfg.txt")
-    cfg["images"] = os.path.join("results", model_name, "images/")
-    cfg["competition_files"] = os.path.join("results", model_name, "competition/")
-    cfg["train_log"] = os.path.join("results", model_name, "train_log.csv")
-    cfg["val_log"] = os.path.join("results", model_name, "val_log.csv")
-    cfg["log_dir"] = "logs/" + model_name
-    cfg["processed_train"] = args.train_dir
-    cfg["processed_val"] = args.val_dir
-    cfg["num_val"] = args.num_val
-    cfg["num_display"] = args.num_display
-    cfg["train_workers"] = args.workers
-
-
 def main():
     args = get_args()
-    update_cfg(args)
+    cfg = update_cfg(args, load_config(args.model))
     print("Args: ", args)
     print("Config: ", cfg)
 

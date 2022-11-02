@@ -4,6 +4,7 @@ import importlib
 import torch
 import random
 import numpy as np
+from datetime import datetime
 from argoverse.evaluation.eval_forecasting import get_displacement_errors_and_miss_rate
 
 
@@ -131,6 +132,46 @@ class AverageMetrics(object):
         }
 
         return metrics_out
+
+
+def load_config(model_name):
+    config_dict = {
+        "vectornet": "vectornet",
+        "lanegcn": "atds",
+        "mhl": "vectornet",
+        "atds": "atds"
+    }
+    assert model_name in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"], \
+        '{} is not in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"]'.format(model_name)
+    model_name = model_name.lower()
+    package_name = "config"
+    module_name = "cfg_{}".format(config_dict[model_name])
+    attr_name = "config"
+
+    module = importlib.import_module(".{}".format(module_name), package=package_name)
+    assert hasattr(module, attr_name), "attribution {} is not in {}".format(attr_name, module_name)
+    cfg = getattr(module, attr_name)
+    return cfg
+
+
+def update_cfg(args, cfg):
+    model_name = args.model.lower() + "_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+    cfg["epoch"] = args.train_epochs
+    cfg["train_batch_size"] = args.train_batch_size
+    cfg["val_batch_size"] = args.val_batch_size
+    cfg["save_dir"] = os.path.join("results", model_name, "weights/")
+    cfg["cfg"] = os.path.join("results", model_name, "cfg.txt")
+    cfg["images"] = os.path.join("results", model_name, "images/")
+    cfg["competition_files"] = os.path.join("results", model_name, "competition/")
+    cfg["train_log"] = os.path.join("results", model_name, "train_log.csv")
+    cfg["val_log"] = os.path.join("results", model_name, "val_log.csv")
+    cfg["log_dir"] = "logs/" + model_name
+    cfg["processed_train"] = args.train_dir
+    cfg["processed_val"] = args.val_dir
+    cfg["num_val"] = args.num_val
+    cfg["num_display"] = args.num_display
+    cfg["train_workers"] = args.workers
+    return cfg
 
 
 def load_model(model_name):
