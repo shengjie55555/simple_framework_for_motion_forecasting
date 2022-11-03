@@ -1,13 +1,13 @@
 import os
-import torch
+import pickle
 import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset
 
 
-class ProcessedDataset(Dataset):
+class VectorNetDataset(Dataset):
     def __init__(self, path, mode):
-        super(ProcessedDataset, self).__init__()
+        super(VectorNetDataset, self).__init__()
         self.path = path
         self.mode = mode
         self.obs_len = 20
@@ -58,6 +58,44 @@ class ProcessedDataset(Dataset):
             data = DataAug.simple_aug(data)
 
         return data
+
+
+class ATDSDataset(Dataset):
+    def __init__(self, path, mode):
+        super(ATDSDataset, self).__init__()
+        self.path = path
+        self.mode = mode
+        self.obs_len = 20
+        self.train = False
+
+        if self.mode == "train":
+            self.train = True
+
+        file_list = os.listdir(path)
+        file_list.sort(key=lambda x: int(x[:-7]))
+        self.file_list = file_list
+
+    def __len__(self):
+        return len(self.file_list)
+
+    def __getitem__(self, item):
+        file = self.file_list[item]
+        with open(self.path + file, "rb") as f:
+            data = pickle.load(f)
+            locs = data["feats"].copy()
+            loc = data["ctrs"].copy()
+            feat = data["feats"][..., :2].copy()
+            for i in reversed(range(feat.shape[1])):
+                locs[:, i, :2] = loc
+                pre = feat[:, i]
+                loc -= pre
+            locs[..., 0] *= locs[..., -1]
+            locs[..., 1] *= locs[..., -1]
+            data["locs"] = locs.copy()
+            if self.train is True:
+                data = DataAug.simple_aug(data)
+
+            return data
 
 
 class DataAug(object):

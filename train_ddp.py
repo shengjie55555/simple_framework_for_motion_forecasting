@@ -7,11 +7,9 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from visualize.vis_vectornet import Vis
 from utils.data_utils import collate_fn, create_dirs, save_log
-from utils.dataset import ProcessedDataset
-from utils.logger import Logger
-from utils.train_utils import worker_init_fn, init_seeds, load_prev_weights, AverageLoss, AverageMetrics, save_ckpt
-from utils.train_utils import load_model, load_config, update_cfg
-from model.loss import Loss
+from utils.log_utils import Logger
+from utils.train_utils import worker_init_fn, init_seeds, load_prev_weights, save_ckpt
+from utils.train_utils import Loader, update_cfg
 from train import val
 
 warnings.filterwarnings("ignore")
@@ -44,15 +42,20 @@ def get_args():
 
 def main():
     args = get_args()
-    cfg = update_cfg(args, load_config(args.model))
-    print("Args: ", args)
-    print("Config: ", cfg)
+    loader = Loader(args.model)
+    cfg, dataset_cls, model_cls, loss_cls, al_cls, am_cls, vis_cls = loader.load()
+    cfg = update_cfg(args, cfg)
 
-    # select device
+    # init ddp
     os.environ["CUDA_VISIBLE_DEVICES"] = args.devices
     local_rank = int(os.environ["LOCAL_RANK"])
     dist.init_process_group(backend='nccl')
     torch.cuda.set_device(local_rank)
+
+    if dist.get_rank() == 0:
+        print("Args: ", args)
+        print("Config: ", cfg)
+        print(dataset_cls, model_cls, loss_cls, al_cls, am_cls, vis_cls)
 
     # set seed
     init_seeds(dist.get_rank() + 1)
@@ -71,7 +74,7 @@ def main():
     logger = Logger(enable=args.logger_writer, log_dir=cfg["log_dir"])
 
     # dataset & dataloader
-    train_set = ProcessedDataset(cfg["processed_train"], mode="train")
+    train_set = dataset_cls(cfg["processed_train"], mode="train")
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_set)
     train_loader = DataLoader(train_set,
                               batch_size=cfg["train_batch_size"],
@@ -80,7 +83,7 @@ def main():
                               pin_memory=True,
                               collate_fn=collate_fn,
                               worker_init_fn=worker_init_fn)
-    val_set = ProcessedDataset(cfg["processed_val"], mode="val")
+    val_set = dataset_cls(cfg["processed_val"], mode="val")
     val_sampler = torch.utils.data.distributed.DistributedSampler(val_set)
     val_loader = DataLoader(val_set,
                             batch_size=cfg["val_batch_size"],
@@ -90,33 +93,37 @@ def main():
                             collate_fn=collate_fn)
 
     # model & training strategy
-    model = load_model(args.model)
-    net = model(cfg, device).to(device)
+    net = model_cls(cfg, device).to(device)
     net = torch.nn.parallel.DistributedDataParallel(net, device_ids=[local_rank], find_unused_parameters=True)
-    loss_net = Loss(cfg, device).to(device)
+    loss_net = loss_cls(cfg, device).to(device)
     optimizer = torch.optim.Adam(net.parameters(), lr=cfg["lr"])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=cfg["milestones"],
                                                      gamma=cfg["gamma"], last_epoch=-1)
 
     # resume
     start_epoch = 0
+    n_iter = 0
     if args.resume:
         if not args.model_path.endswith(".pth"):
             assert False, "Model path error - {}".format(args.model_path)
         else:
             start_epoch = int(os.path.basename(args.model_path).split(".")[0])
+            n_iter = len(train_loader) * start_epoch
             load_prev_weights(net, args.model_path, cfg, optimizer, rank=dist.get_rank(), is_ddp=True)
+            if dist.get_rank() == 0:
+                print("Training from checkpoint: {} - {}".format(start_epoch, n_iter))
     else:
         if dist.get_rank() == 0:
             print("Training from beginning!")
 
     # training
-    n_iter = 0
-    vis = Vis()
+    vis = vis_cls()
+    average_loss = al_cls()
+    average_metrics = am_cls(cfg)
     epoch_loop = tqdm(range(start_epoch, cfg["epoch"]), leave=True, disable=dist.get_rank())
     for epoch in epoch_loop:
-        average_loss = AverageLoss()
-        average_metrics = AverageMetrics(cfg)
+        average_loss.reset()
+        average_metrics.reset()
 
         net.train()
         num_batches = len(train_loader)
@@ -156,7 +163,8 @@ def main():
             save_ckpt(net, optimizer, round(epoch), cfg["save_dir"])
 
         if round(epoch) % cfg['num_val'] == 0:
-            val(cfg, val_loader, net, loss_net, logger, vis, round(epoch), dist.get_rank())
+            val(cfg, val_loader, net, loss_net, logger, average_loss, average_metrics, vis,
+                round(epoch), dist.get_rank())
 
 
 if __name__ == "__main__":

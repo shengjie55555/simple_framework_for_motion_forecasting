@@ -6,10 +6,8 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from visualize.vis_vectornet import Vis
 from utils.data_utils import collate_fn
-from utils.dataset import ProcessedDataset
-from utils.train_utils import init_seeds, load_prev_weights, AverageLoss, AverageMetrics
-from model.vectornet import VectorNet, Loss
-from config.cfg_vectornet import config as cfg
+from utils.train_utils import init_seeds, load_prev_weights
+from utils.train_utils import Loader, update_cfg
 
 warnings.filterwarnings("ignore")
 
@@ -28,21 +26,14 @@ def get_args():
     return args
 
 
-def update_cfg(args):
-    model_name = args.model_name
-    cfg["val_batch_size"] = args.val_batch_size
-    cfg["save_dir"] = os.path.join("results", model_name, "weights/")
-    cfg["cfg"] = os.path.join("results", model_name, "cfg.txt")
-    cfg["images"] = os.path.join("results", model_name, "images/")
-    cfg["competition_files"] = os.path.join("results", model_name, "competition/")
-    cfg["processed_val"] = args.val_dir
-
-
 def main():
     args = get_args()
-    update_cfg(args)
+    loader = Loader(args.model)
+    cfg, dataset_cls, model_cls, loss_cls, al_cls, am_cls, vis_cls = loader.load()
+    cfg = update_cfg(args, cfg, is_eval=True)
     print("Args: ", args)
     print("Config: ", cfg)
+    print(dataset_cls, model_cls, loss_cls, al_cls, am_cls, vis_cls)
 
     # set seed
     init_seeds(0)
@@ -54,7 +45,7 @@ def main():
         device = torch.device('cpu')
 
     # dataset & dataloader
-    val_set = ProcessedDataset(cfg["processed_val"], mode="val")
+    val_set = dataset_cls(cfg["processed_val"], mode="val")
     val_loader = DataLoader(val_set,
                             batch_size=cfg["val_batch_size"],
                             num_workers=cfg['val_workers'],
@@ -63,8 +54,8 @@ def main():
                             collate_fn=collate_fn)
 
     # model & training strategy
-    net = VectorNet(cfg, device).to(device)
-    loss_net = Loss(cfg, device).to(device)
+    net = model_cls(cfg, device).to(device)
+    loss_net = loss_cls(cfg, device).to(device)
 
     # resume
     if args.resume:
@@ -77,9 +68,9 @@ def main():
         print("Evaluation without pre-trained weights!")
 
     # evaluation
-    average_loss = AverageLoss()
-    average_metrics = AverageMetrics(cfg)
-    vis = Vis()
+    vis = vis_cls()
+    average_loss = al_cls()
+    average_metrics = am_cls(cfg)
     loop = tqdm(enumerate(val_loader), total=len(val_loader), desc="Val", leave=True)
     net.eval()
     with torch.no_grad():

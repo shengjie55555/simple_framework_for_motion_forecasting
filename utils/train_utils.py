@@ -5,7 +5,6 @@ import torch
 import random
 import numpy as np
 from datetime import datetime
-from argoverse.evaluation.eval_forecasting import get_displacement_errors_and_miss_rate
 
 
 def worker_init_fn(pid):
@@ -60,101 +59,16 @@ def load_prev_weights(net, path, cfg, opt=None, rank=0, is_ddp=False):
         print(f'loaded parameters {len(loaded_modules)}/{len(state_dict)}')
 
 
-class AverageLoss(object):
-    def __init__(self):
-        self.loss_out = {}
-
-    def reset(self):
-        self.loss_out = {}
-
-    def update(self, loss_out):
-        # initialization
-        if len(self.loss_out.keys()) == 0:
-            for key in loss_out.keys():
-                if key != "loss":
-                    self.loss_out[key] = 0
-
-        for key in loss_out.keys():
-            if key == "loss":
-                continue
-            if isinstance(loss_out[key], torch.Tensor):
-                self.loss_out[key] += loss_out[key].detach().cpu().item()
-            else:
-                self.loss_out[key] += loss_out[key]
-
-    def get(self):
-        cls = self.loss_out["cls_loss"] / (self.loss_out["num_cls"] + 1e-10)
-        reg = self.loss_out["reg_loss"] / (self.loss_out["num_reg"] + 1e-10)
-        loss = cls + reg
-        loss_out = {
-            "cls_loss": cls,
-            "reg_loss": reg,
-            "loss": loss
-        }
-        return loss_out
-
-
-class AverageMetrics(object):
-    def __init__(self, cfg):
-        self.reg = {}
-        self.cls = {}
-        self.gts = {}
-        self.city = {}
-        self.cfg = cfg
-
-    def reset(self):
-        self.reg, self.cls, self.city, self.gts = {}, {}, {}, {}
-
-    def update(self, post_out, data):
-        reg = [x[0:1].detach().cpu().numpy() for x in post_out["reg"]]
-        cls = [x[0:1].detach().cpu().numpy() for x in post_out["cls"]]
-        for j, seq_id in enumerate(data["seq_id"]):
-            self.reg[seq_id] = reg[j].squeeze()
-            self.cls[seq_id] = [x for x in cls[j].squeeze()]
-            self.gts[seq_id] = data["trajs_fut"][j][0].detach().cpu().numpy()
-            self.city[seq_id] = data["city_name"][j]
-
-    def get(self):
-        res_1 = get_displacement_errors_and_miss_rate(
-            self.reg, self.gts, 1, self.cfg["pred_len"], 2, self.cls)
-        res_k = get_displacement_errors_and_miss_rate(
-            self.reg, self.gts, self.cfg["num_mode"], self.cfg["pred_len"], 2, self.cls)
-
-        metrics_out = {
-            'minade_1': res_1['minADE'],
-            'minfde_1': res_1['minFDE'],
-            'mr_1': res_1['MR'],
-            'brier_fde_1': res_1['brier-minFDE'],
-            'minade_k': res_k['minADE'],
-            'minfde_k': res_k['minFDE'],
-            'mr_k': res_k['MR'],
-            'brier_fde_k': res_k['brier-minFDE']
-        }
-
-        return metrics_out
-
-
-def load_config(model_name):
-    config_dict = {
-        "vectornet": "vectornet",
-        "lanegcn": "atds",
-        "mhl": "vectornet",
-        "atds": "atds"
-    }
-    assert model_name in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"], \
-        '{} is not in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"]'.format(model_name)
-    model_name = model_name.lower()
-    package_name = "config"
-    module_name = "cfg_{}".format(config_dict[model_name])
-    attr_name = "config"
-
-    module = importlib.import_module(".{}".format(module_name), package=package_name)
-    assert hasattr(module, attr_name), "attribution {} is not in {}".format(attr_name, module_name)
-    cfg = getattr(module, attr_name)
-    return cfg
-
-
-def update_cfg(args, cfg):
+def update_cfg(args, cfg, is_eval=False):
+    if is_eval:
+        model_name = args.model_name
+        cfg["val_batch_size"] = args.val_batch_size
+        cfg["save_dir"] = os.path.join("results", model_name, "weights/")
+        cfg["cfg"] = os.path.join("results", model_name, "cfg.txt")
+        cfg["images"] = os.path.join("results", model_name, "images/")
+        cfg["competition_files"] = os.path.join("results", model_name, "competition/")
+        cfg["processed_val"] = args.val_dir
+        return cfg
     model_name = args.model.lower() + "_" + datetime.now().strftime("%Y%m%d_%H%M%S")
     cfg["epoch"] = args.train_epochs
     cfg["train_batch_size"] = args.train_batch_size
@@ -174,21 +88,104 @@ def update_cfg(args, cfg):
     return cfg
 
 
-def load_model(model_name):
-    class_dict = {
-        "vectornet": "VectorNet",
-        "lanegcn": "LaneGCN",
-        "mhl": "MHL",
-        "atds": "ATDS"
-    }
-    assert model_name in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"], \
-        '{} is not in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"]'.format(model_name)
-    model_name = model_name.lower()
-    package_name = "model"
-    module_name = model_name
-    class_name = class_dict[model_name]
+class Loader(object):
+    def __init__(self, model_name):
+        self.model_dict = {
+            "vectornet": "VectorNet",
+            "lanegcn": "LaneGCN",
+            "mhl": "MHL",
+            "atds": "ATDS"
+        }
+        self.config_dict = {
+            "vectornet": "vectornet",
+            "lanegcn": "atds",
+            "mhl": "vectornet",
+            "atds": "atds"
+        }
+        self.dataset_dict = {
+            "vectornet": "VectorNet",
+            "lanegcn": "ATDS",
+            "mhl": "VectorNet",
+            "atds": "ATDS"
+        }
+        self.loss_dict = {
+            "vectornet": "VectorNet",
+            "lanegcn": "VectorNet",
+            "mhl": "VectorNet",
+            "atds": "ATDS"
+        }
+        self.log_dict = {
+            "vectornet": "VectorNet",
+            "lanegcn": "VectorNet",
+            "mhl": "VectorNet",
+            "atds": "ATDS"
+        }
+        self.vis_dict = {
+            "vectornet": "vectornet",
+            "lanegcn": "atds",
+            "mhl": "vectornet",
+            "atds": "atds"
+        }
+        assert model_name in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"], \
+            '{} is not in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"]'.format(
+                model_name)
+        self.model_name = model_name.lower()
 
-    module = importlib.import_module(".{}".format(module_name), package=package_name)
-    assert hasattr(module, class_name), "class {} is not in {}".format(class_name, module_name)
-    cls = getattr(module, class_name)
-    return cls
+    def load(self):
+        config = self.load_config()
+        dataset_cls = self.load_dataset()
+        model_cls = self.load_model()
+        loss_cls = self.load_loss()
+        al_cls = self.load_average_loss_logger()
+        am_cls = self.load_average_metrics_logger()
+        vis_cls = self.load_vis()
+        return config, dataset_cls, model_cls, loss_cls, al_cls, am_cls, vis_cls
+
+    @staticmethod
+    def load_attr(package_name, module_name, attr_name):
+        module = importlib.import_module(".{}".format(module_name), package=package_name)
+        assert hasattr(module, attr_name), "attribution {} is not in {}".format(attr_name, module_name)
+        attr = getattr(module, attr_name)
+        return attr
+
+    def load_model(self):
+        package_name = "model"
+        module_name = self.model_name
+        attr_name = self.model_dict[self.model_name]
+        return self.load_attr(package_name, module_name, attr_name)
+
+    def load_config(self):
+        package_name = "config"
+        module_name = "cfg_{}".format(self.config_dict[self.model_name])
+        attr_name = "config"
+        return self.load_attr(package_name, module_name, attr_name)
+
+    def load_dataset(self):
+        package_name = "utils"
+        module_name = "dataset"
+        attr_name = "{}Dataset".format(self.dataset_dict[self.model_name])
+        return self.load_attr(package_name, module_name, attr_name)
+
+    def load_loss(self):
+        package_name = "model"
+        module_name = "loss"
+        attr_name = "{}Loss".format(self.loss_dict[self.model_name])
+        return self.load_attr(package_name, module_name, attr_name)
+
+    def load_average_loss_logger(self):
+        package_name = "utils"
+        module_name = "log_utils"
+        attr_name = "{}AverageLoss".format(self.log_dict[self.model_name])
+        return self.load_attr(package_name, module_name, attr_name)
+
+    def load_average_metrics_logger(self):
+        package_name = "utils"
+        module_name = "log_utils"
+        attr_name = "{}AverageMetrics".format(self.log_dict[self.model_name])
+        return self.load_attr(package_name, module_name, attr_name)
+
+    def load_vis(self):
+        package_name = "visualize"
+        module_name = "vis_{}".format(self.vis_dict[self.model_name])
+        attr_name = "Vis"
+        return self.load_attr(package_name, module_name, attr_name)

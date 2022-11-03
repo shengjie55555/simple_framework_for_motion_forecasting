@@ -4,13 +4,10 @@ import torch
 import warnings
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from visualize.vis_vectornet import Vis
 from utils.data_utils import collate_fn, create_dirs, save_log
-from utils.dataset import ProcessedDataset
-from utils.logger import Logger
-from utils.train_utils import worker_init_fn, init_seeds, load_prev_weights, AverageLoss, AverageMetrics, save_ckpt
-from utils.train_utils import load_model, load_config, update_cfg
-from model.loss import Loss
+from utils.log_utils import Logger
+from utils.train_utils import worker_init_fn, init_seeds, load_prev_weights, save_ckpt
+from utils.train_utils import Loader, update_cfg
 
 warnings.filterwarnings("ignore")
 
@@ -39,9 +36,9 @@ def get_args():
     return args
 
 
-def val(config, data_loader, net, loss_net, logger, vis, epoch, rank=0):
-    average_loss = AverageLoss()
-    average_metrics = AverageMetrics(config)
+def val(config, data_loader, net, loss_net, logger, average_loss, average_metrics, vis, epoch, rank=0):
+    average_loss.reset()
+    average_metrics.reset()
     loop = tqdm(enumerate(data_loader), total=len(data_loader), desc="Val", leave=False, disable=rank)
     net.eval()
     with torch.no_grad():
@@ -67,9 +64,12 @@ def val(config, data_loader, net, loss_net, logger, vis, epoch, rank=0):
 
 def main():
     args = get_args()
-    cfg = update_cfg(args, load_config(args.model))
+    loader = Loader(args.model)
+    cfg, dataset_cls, model_cls, loss_cls, al_cls, am_cls, vis_cls = loader.load()
+    cfg = update_cfg(args, cfg)
     print("Args: ", args)
     print("Config: ", cfg)
+    print(dataset_cls, model_cls, loss_cls, al_cls, am_cls, vis_cls)
 
     # set seed
     init_seeds(0)
@@ -87,7 +87,7 @@ def main():
     logger = Logger(enable=args.logger_writer, log_dir=cfg["log_dir"])
 
     # dataset & dataloader
-    train_set = ProcessedDataset(cfg["processed_train"], mode="train")
+    train_set = dataset_cls(cfg["processed_train"], mode="train")
     train_loader = DataLoader(train_set,
                               batch_size=cfg["train_batch_size"],
                               num_workers=cfg['train_workers'],
@@ -95,7 +95,7 @@ def main():
                               pin_memory=True,
                               collate_fn=collate_fn,
                               worker_init_fn=worker_init_fn)
-    val_set = ProcessedDataset(cfg["processed_val"], mode="val")
+    val_set = dataset_cls(cfg["processed_val"], mode="val")
     val_loader = DataLoader(val_set,
                             batch_size=cfg["val_batch_size"],
                             num_workers=cfg['val_workers'],
@@ -104,9 +104,8 @@ def main():
                             collate_fn=collate_fn)
 
     # model & training strategy
-    model = load_model(args.model)
-    net = model(cfg, device).to(device)
-    loss_net = Loss(cfg, device).to(device)
+    net = model_cls(cfg, device).to(device)
+    loss_net = loss_cls(cfg, device).to(device)
     optimizer = torch.optim.Adam(net.parameters(), lr=cfg["lr"])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=cfg["milestones"],
                                                      gamma=cfg["gamma"], last_epoch=-1)
@@ -126,12 +125,13 @@ def main():
         print("Training from beginning!")
 
     # training
-    vis = Vis()
+    vis = vis_cls()
+    average_loss = al_cls()
+    average_metrics = am_cls(cfg)
     epoch_loop = tqdm(range(start_epoch, cfg["epoch"]), leave=True)
     for epoch in epoch_loop:
-        average_loss = AverageLoss()
-        average_metrics = AverageMetrics(cfg)
-
+        average_loss.reset()
+        average_metrics.reset()
         net.train()
         num_batches = len(train_loader)
         epoch_per_batch = 1.0 / num_batches
@@ -167,7 +167,7 @@ def main():
         save_ckpt(net, optimizer, round(epoch), cfg["save_dir"])
 
         if round(epoch) % cfg['num_val'] == 0:
-            val(cfg, val_loader, net, loss_net, logger, vis, round(epoch))
+            val(cfg, val_loader, net, loss_net, logger, average_loss, average_metrics, vis, round(epoch))
 
 
 if __name__ == "__main__":
