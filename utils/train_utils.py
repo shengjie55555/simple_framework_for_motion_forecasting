@@ -90,41 +90,17 @@ def update_cfg(args, cfg, is_eval=False):
 
 class Loader(object):
     def __init__(self, model_name):
-        self.model_dict = {
+        self.module_dict = {
+            "vectornet": "vectornet",
+            "lanegcn": "lanegcn",
+            "mhl": "mhl",
+            "atds": "atds"
+        }
+        self.class_dict = {
             "vectornet": "VectorNet",
             "lanegcn": "LaneGCN",
             "mhl": "MHL",
             "atds": "ATDS"
-        }
-        self.config_dict = {
-            "vectornet": "vectornet",
-            "lanegcn": "atds",
-            "mhl": "vectornet",
-            "atds": "atds"
-        }
-        self.dataset_dict = {
-            "vectornet": "VectorNet",
-            "lanegcn": "ATDS",
-            "mhl": "VectorNet",
-            "atds": "ATDS"
-        }
-        self.loss_dict = {
-            "vectornet": "VectorNet",
-            "lanegcn": "VectorNet",
-            "mhl": "VectorNet",
-            "atds": "ATDS"
-        }
-        self.log_dict = {
-            "vectornet": "VectorNet",
-            "lanegcn": "VectorNet",
-            "mhl": "VectorNet",
-            "atds": "ATDS"
-        }
-        self.vis_dict = {
-            "vectornet": "vectornet",
-            "lanegcn": "atds",
-            "mhl": "vectornet",
-            "atds": "atds"
         }
         assert model_name in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"], \
             '{} is not in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"]'.format(
@@ -151,41 +127,41 @@ class Loader(object):
     def load_model(self):
         package_name = "model"
         module_name = self.model_name
-        attr_name = self.model_dict[self.model_name]
+        attr_name = self.class_dict[self.model_name]
         return self.load_attr(package_name, module_name, attr_name)
 
     def load_config(self):
         package_name = "config"
-        module_name = "cfg_{}".format(self.config_dict[self.model_name])
+        module_name = "cfg_{}".format(self.module_dict[self.model_name])
         attr_name = "config"
         return self.load_attr(package_name, module_name, attr_name)
 
     def load_dataset(self):
         package_name = "utils"
         module_name = "dataset"
-        attr_name = "{}Dataset".format(self.dataset_dict[self.model_name])
+        attr_name = "{}Dataset".format(self.class_dict[self.model_name])
         return self.load_attr(package_name, module_name, attr_name)
 
     def load_loss(self):
         package_name = "model"
         module_name = "loss"
-        attr_name = "{}Loss".format(self.loss_dict[self.model_name])
+        attr_name = "{}Loss".format(self.class_dict[self.model_name])
         return self.load_attr(package_name, module_name, attr_name)
 
     def load_average_loss_logger(self):
         package_name = "utils"
         module_name = "log_utils"
-        attr_name = "{}AverageLoss".format(self.log_dict[self.model_name])
+        attr_name = "{}AverageLoss".format(self.class_dict[self.model_name])
         return self.load_attr(package_name, module_name, attr_name)
 
     def load_average_metrics_logger(self):
         package_name = "utils"
         module_name = "log_utils"
-        attr_name = "{}AverageMetrics".format(self.log_dict[self.model_name])
+        attr_name = "{}AverageMetrics".format(self.class_dict[self.model_name])
         return self.load_attr(package_name, module_name, attr_name)
 
     def load_vis(self):
         package_name = "visualize"
-        module_name = "vis_{}".format(self.vis_dict[self.model_name])
+        module_name = "vis_{}".format(self.module_dict[self.model_name])
         attr_name = "Vis"
         return self.load_attr(package_name, module_name, attr_name)
