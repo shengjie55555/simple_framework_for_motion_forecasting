@@ -452,7 +452,7 @@ class Att(nn.Module):
         gates = torch.matmul(query, key.transpose(-1, -2)) * self.scale
         gates = self.sigmoid(gates)
 
-        out = torch.matmul(gates, value).squeeze()
+        out = torch.matmul(gates, value).squeeze(-2)
         out = rearrange(out, "n h d -> n (h d)")
         out = self.to_out(out)
 
