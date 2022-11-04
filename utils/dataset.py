@@ -98,6 +98,11 @@ class ATDSDataset(Dataset):
             return data
 
 
+class MHLDataset(ATDSDataset):
+    def __init__(self, path, mode):
+        super(MHLDataset, self).__init__(path, mode)
+
+
 class DataAug(object):
     @classmethod
     def simple_aug(cls, data):

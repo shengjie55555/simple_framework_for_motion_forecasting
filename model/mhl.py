@@ -2,55 +2,44 @@ import torch
 import torch.nn as nn
 from einops import repeat, rearrange
 from model.decoder import SimpleDecoder as Decoder
-from model.layers import Linear, LinearRes
+from model.atds import Linear
 from utils.data_utils import gpu
 
 
 class MHL(nn.Module):
     def __init__(self, cfg, device):
         super(MHL, self).__init__()
-        a_dim, out_dim, a_num_layer, num_mode, pred_len = \
+        n_agt, n_out, n_agt_layer, num_mode, pred_len = \
             cfg["n_agent"], cfg["n_feature"], \
-            cfg["n_layer_agent"], cfg["num_mode"], cfg["pred_len"]
+            cfg["n_agent_layer"], cfg["num_mode"], cfg["pred_len"]
         self.device = device
-        self.agent_encoder = AgentEncoder(a_dim, out_dim, a_num_layer)
-        self.interaction_encoder = InteractionEncoder(out_dim)
-        self.decoder = Decoder(out_dim, num_mode, pred_len, is_cat=True)
+        self.agent_encoder = AgentEncoder(n_agt, n_out, n_agt_layer)
+        self.interaction_encoder = InteractionEncoder(n_out)
+        self.decoder = Decoder(n_out, num_mode, pred_len)
 
     def forward(self, data):
-        agents, agent_ids, agent_ctrs = agent_gather(gpu(data["trajs_obs"], self.device),
-                                                     gpu(data["pad_obs"], self.device))
+        agents, agent_ids, agent_ctrs = agent_gather(gpu(data["feats"], self.device),
+                                                     gpu(data["locs"], self.device))
         agents = self.agent_encoder(agents)
-        i_agents = self.interaction_encoder(agents, agent_ids)
 
-        agents = torch.cat([agents, i_agents], dim=-1)
-        reg, cls = self.decoder(agents)
+        agents = self.interaction_encoder(agents, agent_ids)
 
-        out = dict()
-        out['cls'], out['reg'] = [], []
-        for i in range(len(agent_ids)):
-            ids = agent_ids[i]
-            ctrs = agent_ctrs[i].view(-1, 1, 1, 2)
-            reg[ids] = reg[ids] + ctrs
-            out['cls'].append(cls[ids])
-            out['reg'].append(reg[ids])
+        out = self.decoder(agents, agent_ids, agent_ctrs)
+        rot, orig = gpu(data["rot"], self.device), gpu(data["orig"], self.device)
 
+        # transform prediction to world coordinates
+        for i in range(len(out["reg"])):
+            out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(1, 1, 1, -1)
         return out
 
 
-def agent_gather(trajs_obs, pad_obs):
-    batch_size = len(trajs_obs)
-    num_agents = [len(x) for x in trajs_obs]
+def agent_gather(agents, locs):
+    batch_size = len(agents)
+    num_agents = [len(x) for x in agents]
 
-    agents = []
-    for i in range(batch_size):
-        feats = torch.zeros_like(trajs_obs[i][:, :, :2])
-        feats[:, 1:, :] = trajs_obs[i][:, 1:, :] - trajs_obs[i][:, :-1, :]
-        agents.append(torch.cat([trajs_obs[i][:, :, :2], feats, pad_obs[i].unsqueeze(2)], dim=-1))
-
-    agents = torch.cat(agents, 0)  # n * obs_len * 5 (x, y, dx, dy, mask)
-    agents[:, :, :-1] *= agents[:, :, -1:]
-    agents[:, 1:, :-1] *= agents[:, :-1, -1:]
+    agents = torch.cat(agents, dim=0)
+    locs = torch.cat(locs, dim=0)
+    agents = torch.cat([locs[..., :2], agents], dim=-1)
 
     agent_ids = []
     count = 0
@@ -72,7 +61,7 @@ class AgentEncoder(nn.Module):
         self.backbone = nn.ModuleList()
         for i in range(num_layers):
             hidden_dim = out_dim // (2 ** (num_layers - i - 1))
-            self.backbone.append(LinearRes(in_dim, hidden_dim, hidden_dim))
+            self.backbone.append(LinearRes(in_dim, hidden_dim))
             in_dim = hidden_dim
 
         self.h0 = nn.Parameter(torch.zeros(1, 1, out_dim))  # num_layer_in_LSTM * n * out_dim
@@ -87,6 +76,39 @@ class AgentEncoder(nn.Module):
         c0 = repeat(self.c0, "h n d-> h (n1 n) d", n1=n)
         output, (hn, cn) = self.lstm(x.transpose(0, 1), (h0, c0))
         return hn.squeeze(0)
+
+
+class LinearRes(nn.Module):
+    def __init__(self, n_in, n_out):
+        super(LinearRes, self).__init__()
+        self.linear1 = nn.Linear(n_in, n_out, bias=False)
+        self.linear2 = nn.Linear(n_out, n_out, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+
+        self.norm1 = nn.LayerNorm([20, n_out])
+        self.norm2 = nn.LayerNorm([20, n_out])
+
+        if n_in != n_out:
+            self.transform = nn.Sequential(
+                nn.Linear(n_in, n_out, bias=False),
+                nn.LayerNorm([20, n_out]))
+        else:
+            self.transform = None
+
+    def forward(self, x):
+        out = self.linear1(x)
+        out = self.norm1(out)
+        out = self.relu(out)
+        out = self.linear2(out)
+        out = self.norm2(out)
+
+        if self.transform is not None:
+            out += self.transform(x)
+        else:
+            out += x
+
+        out = self.relu(out)
+        return out
 
 
 class InteractionEncoder(nn.Module):

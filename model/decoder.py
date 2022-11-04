@@ -1,49 +1,58 @@
 import torch
 import torch.nn as nn
-from model.layers import Linear, LinearRes
-from einops import repeat
+from model.atds import Linear, LinearRes, AttDest
 
 
 class SimpleDecoder(nn.Module):
-    def __init__(self, out_dim, num_mode, pred_len, is_cat=False):
+    def __init__(self, n_agt, num_mode, pred_len):
         super(SimpleDecoder, self).__init__()
-        self.out_dim = out_dim
+        ng = 1
+        self.n_agt = n_agt
         self.num_mode = num_mode
         self.pred_len = pred_len
 
-        if is_cat:
-            self.in_dim = 2 * self.out_dim
-        else:
-            self.in_dim = self.out_dim
+        pred = []
+        for i in range(num_mode):
+            pred.append(
+                nn.Sequential(
+                    LinearRes(n_agt, n_agt, ng=ng),
+                    nn.Linear(n_agt, 2 * pred_len),
+                )
+            )
+        self.pred = nn.ModuleList(pred)
 
-        self.traj_decoder = nn.ModuleList(nn.Sequential(
-            LinearRes(self.in_dim, out_dim, out_dim),
-            nn.Linear(out_dim, self.pred_len * 2)
-        ) for _ in range(num_mode))
+        self.att_dest = AttDest(n_agt)
+        self.cls = nn.Sequential(
+            LinearRes(n_agt, n_agt, ng=ng), nn.Linear(n_agt, 1)
+        )
 
-        self.score_decoder = nn.ModuleDict({
-            "goal": nn.Sequential(
-                nn.Linear(2, out_dim),
-                nn.ReLU(inplace=True),
-                Linear(out_dim, out_dim)
-            ),
-            "score": nn.Sequential(
-                Linear(self.in_dim + self.out_dim, out_dim),
-                nn.Linear(out_dim, 1),
-                nn.Softmax(dim=-2)
-            ),
-        })
-
-    def forward(self, agents):
+    def forward(self, agents, agent_ids, agent_ctrs):
         preds = []
-        for i in range(self.num_mode):
-            preds.append(self.traj_decoder[i](agents))
-        reg = torch.cat([pred.unsqueeze(-2) for pred in preds]).view(agents.shape[0], self.num_mode, self.pred_len, -1)
+        for i in range(len(self.pred)):
+            preds.append(self.pred[i](agents))
+        reg = torch.cat([x.unsqueeze(1) for x in preds], 1)
+        reg = reg.view(reg.size()[0], reg.size()[1], -1, 2)
 
-        goals = reg[:, :, -1].detach()
-        goals = self.score_decoder["goal"](goals)
-        agents = torch.cat([repeat(agents, "n d -> n h d", h=self.num_mode), goals], dim=-1)
-        cls = self.score_decoder["score"](agents).squeeze(-1)
+        for i in range(len(agent_ids)):
+            ids = agent_ids[i]
+            ctrs = agent_ctrs[i].view(-1, 1, 1, 2)
+            reg[ids] = reg[ids] + ctrs
 
-        return reg, cls
+        dest_ctrs = reg[:, :, -1].detach()
+        feats = self.att_dest(agents, torch.cat(agent_ctrs, 0), dest_ctrs)
+        cls1 = self.cls(feats).view(-1, self.num_mode)
+        cls = torch.softmax(cls1, dim=-1)
 
+        cls, sort_ids = cls.sort(1, descending=True)
+        row_ids = torch.arange(len(sort_ids)).long().to(sort_ids.device)
+        row_ids = row_ids.view(-1, 1).repeat(1, sort_ids.size(1)).view(-1)
+        sort_ids = sort_ids.view(-1)
+        reg = reg[row_ids, sort_ids].view(cls.size(0), cls.size(1), -1, 2)
+
+        out = dict()
+        out["cls"], out["reg"] = [], []
+        for i in range(len(agent_ids)):
+            ids = agent_ids[i]
+            out["cls"].append(cls[ids])
+            out["reg"].append(reg[ids])
+        return out

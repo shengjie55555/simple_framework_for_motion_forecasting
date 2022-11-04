@@ -173,3 +173,32 @@ class ATDSAverageMetrics(object):
         }
 
         return metrics_out
+
+
+class MHLAverageLoss(VectorNetAverageLoss):
+    def __init__(self):
+        super(MHLAverageLoss, self).__init__()
+
+
+class MHLAverageMetrics(ATDSAverageMetrics):
+    def __init__(self, cfg):
+        super(MHLAverageMetrics, self).__init__(cfg)
+
+    def get(self):
+        res_1 = get_displacement_errors_and_miss_rate(
+            self.reg, self.gts, 1, self.cfg["pred_len"], 2, self.cls)
+        res_k = get_displacement_errors_and_miss_rate(
+            self.reg, self.gts, self.cfg["num_mode"], self.cfg["pred_len"], 2, self.cls)
+
+        metrics_out = {
+            'minade_1': res_1['minADE'],
+            'minfde_1': res_1['minFDE'],
+            'mr_1': res_1['MR'],
+            'brier_fde_1': res_1['brier-minFDE'],
+            'minade_k': res_k['minADE'],
+            'minfde_k': res_k['minFDE'],
+            'mr_k': res_k['MR'],
+            'brier_fde_k': res_k['brier-minFDE']
+        }
+
+        return metrics_out
