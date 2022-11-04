@@ -142,18 +142,21 @@ class ATDSAverageMetrics(object):
         self.gts = {}
         self.city = {}
         self.cfg = cfg
+        self.seq_id = 0
 
     def reset(self):
         self.reg, self.cls, self.city, self.gts = {}, {}, {}, {}
+        self.seq_id = 0
 
     def update(self, post_out, data):
         reg = [x[0:1].detach().cpu().numpy() for x in post_out["reg"]]
         cls = [x[0:1].detach().cpu().numpy() for x in post_out["cls"]]
-        for j, seq_id in enumerate(data["argo_id"]):
-            self.reg[seq_id] = reg[j].squeeze()
-            self.cls[seq_id] = [x for x in cls[j].squeeze()]
-            self.gts[seq_id] = data["gt_preds"][j][0].detach().cpu().numpy()
-            self.city[seq_id] = data["city"][j]
+        for j in range(len(reg)):
+            self.reg[self.seq_id + j] = reg[j].squeeze()
+            self.cls[self.seq_id + j] = [x for x in cls[j].squeeze()]
+            self.gts[self.seq_id + j] = data["gt_preds"][j][0].detach().cpu().numpy()
+            self.city[self.seq_id + j] = data["city"][j]
+        self.seq_id += len(reg)
 
     def get(self):
         res_1 = get_displacement_errors_and_miss_rate(
