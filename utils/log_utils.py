@@ -205,3 +205,13 @@ class MHLAverageMetrics(ATDSAverageMetrics):
         }
 
         return metrics_out
+
+
+class LaneGCNAverageLoss(VectorNetAverageLoss):
+    def __init__(self):
+        super(LaneGCNAverageLoss, self).__init__()
+
+
+class LaneGCNAverageMetrics(MHLAverageMetrics):
+    def __init__(self, cfg):
+        super(LaneGCNAverageMetrics, self).__init__(cfg)
