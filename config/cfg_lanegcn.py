@@ -8,7 +8,6 @@ model_name = "mhl"
 config["n_agent"] = 5            # (x, y, dx, dy, mask)
 config["n_feature"] = 128        # feature dimension
 config["n_agent_layer"] = 3      # number of layers in agent encoder's backbone
-config["map2map_dist"] = 2.0     # map to map threshold
 config["map2agent_dist"] = 15.0  # map to agent threshold
 config["num_scales"] = 6         # dilated lane
 

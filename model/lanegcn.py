@@ -9,11 +9,10 @@ from utils.data_utils import gpu, to_long
 class LaneGCN(nn.Module):
     def __init__(self, cfg, device):
         super(LaneGCN, self).__init__()
-        n_agt, n_out, n_agt_layer, m2m_dist, m2a_dist, n_scales, num_mode, pred_len = \
-            cfg["n_agent"], cfg["n_feature"], cfg["n_agent_layer"], cfg["map2map_dist"], \
+        n_agt, n_out, n_agt_layer, m2a_dist, n_scales, num_mode, pred_len = \
+            cfg["n_agent"], cfg["n_feature"], cfg["n_agent_layer"], \
             cfg["map2agent_dist"], cfg["num_scales"], cfg["num_mode"], cfg["pred_len"]
         self.device = device
-        self.m2m_dist = m2m_dist
         self.m2a_dist = m2a_dist
 
         self.agent_encoder = AgentEncoder(n_agt, n_out, n_agt_layer)
@@ -28,7 +27,7 @@ class LaneGCN(nn.Module):
         agents = self.agent_encoder(agents)
 
         graph = graph_gather(to_long(gpu(data["graph"], self.device)))
-        nodes, node_ids, node_ctrs = self.map_encoder(graph, self.m2m_dist)
+        nodes, node_ids, node_ctrs = self.map_encoder(graph)
 
         agents = self.m2a(agents, agent_ids, agent_ctrs, nodes, node_ids, node_ctrs, self.m2a_dist)
         agents = self.a2a(agents, agent_ids)
@@ -147,7 +146,7 @@ class MapEncoder(nn.Module):
 
         self.meta = Linear(n_out + 4, n_out)
 
-        keys = ["ctr", "norm", "ctr2", "graph_attention"]
+        keys = ["ctr", "norm", "ctr2", "left", "right"]
         for i in range(n_scales):
             keys.append("pre" + str(i))
             keys.append("suc" + str(i))
@@ -162,8 +161,6 @@ class MapEncoder(nn.Module):
                     fuse[key].append(nn.GroupNorm(1, n_out))
                 elif key in ["ctr2"]:
                     fuse[key].append(Linear(n_out, n_out, act=False))
-                elif key in ["graph_attention"]:
-                    fuse[key].append(Att(n_out, n_out))
                 else:
                     fuse[key].append(nn.Linear(n_out, n_out, bias=False))
 
@@ -172,7 +169,7 @@ class MapEncoder(nn.Module):
         self.fuse = nn.ModuleDict(fuse)
         self.relu = nn.ReLU(inplace=True)
 
-    def forward(self, graph, m2m_dist):
+    def forward(self, graph):
         ctrs = torch.cat(graph["ctrs"], 0)
         feat = self.input(ctrs)
         feat += self.seg(graph["feats"])
@@ -190,11 +187,6 @@ class MapEncoder(nn.Module):
 
         res = feat
         for i in range(len(self.fuse["ctr2"])):
-            feat = self.fuse["graph_attention"][i](
-                feat, graph["idcs"], graph["ctrs"],
-                feat, graph["idcs"], graph["ctrs"], m2m_dist
-            )
-
             temp = self.fuse["ctr"][i](feat)
             for key in self.fuse:
                 if key.startswith("pre") or key.startswith("suc"):
@@ -205,6 +197,20 @@ class MapEncoder(nn.Module):
                         graph[k1][k2]["u"],
                         self.fuse[key][i](feat[graph[k1][k2]["v"]]),
                     )
+
+            if len(graph["left"]["u"] > 0):
+                temp.index_add_(
+                    0,
+                    graph["left"]["u"],
+                    self.fuse["left"][i](feat[graph["left"]["v"]]),
+                )
+            if len(graph["right"]["u"] > 0):
+                temp.index_add_(
+                    0,
+                    graph["right"]["u"],
+                    self.fuse["right"][i](feat[graph["right"]["v"]]),
+                )
+
             feat = self.fuse["norm"][i](temp)
             feat = self.relu(feat)
 
