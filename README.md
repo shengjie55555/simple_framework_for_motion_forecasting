@@ -20,8 +20,9 @@
 
 **备注**：
 1. 上述通过```args.model```参数和```importlib```来自动化加载所需要的类
-2. 优化器目前默认```Adam```
-3. 学习率调整策略默认```MultiStepLR```
+2. 各个模型之间的差异：数据接口、配置文件、模型结构
+3. 优化器目前默认```Adam```
+4. 学习率调整策略默认```MultiStepLR```
 
 ## 框架中已有模型
 | methods   | config                      | dataset                        | model                     | loss                     | average_loss                         | average_metrics                         | vis                         |
@@ -29,15 +30,17 @@
 | ATDS      | config.cfg_atds.config      | utils.dataset.ATDSDataset      | model.atds.ATDS           | model.loss.ATDSLoss      | utils.log_utils.ATDSAverageLoss      | utils.log_utils.ATDSAverageMetrics      | visualize.vis_atds.Vis      |
 | VectorNet | config.cfg_vectornet.config | utils.dataset.VectorNetDataset | model.vectornet.VectorNet | model.loss.VectorNetLoss | utils.log_utils.VectorNetAverageLoss | utils.log_utils.VectorNetAverageMetrics | visualize.vis_vectornet.Vis |
 | MHL       | config.cfg_mhl.config       | utils.dataset.ATDSDataset      | model.mhl.MHL             | model.loss.MHLLoss       | utils.log_utils.MHLAverageLoss       | utils.log_utils.MHLAverageMetrics       | visualize.vis_mhl.Vis       |
+| LaneGCN   | config.cfg_lanegcn.config   | utils.dataset.LaneGCNDataset   | model.lanegcn.LaneGCN     | model.loss.LaneGCNLoss   | utils.log_utils.LaneGCNAverageLoss   | utils.log_utils.LaneGCNAverageMetrics   | visualize.vis_lanegcn.Vis   |
+| DS        | config.cfg_ds.config        | utils.dataset.DSDataset        | model.ds.DS               | model.loss.DSLoss        | utils.log_utils.DSAverageLoss        | utils.log_utils.DSAverageMetrics        | visualize.vis_ds.Vis        |
 
 ## 复杂场景
 考虑场景的不确定性和驾驶员决策的不确定性分成以下几类：
 
-| 类别  | 场景ID                   |
-|-----|------------------------|
-| 变道  | **9**,239,438          |
-| 左转  | 52,356,**553**         |
-| 右转  | **146**,402,1001       |
-| 路口  | 29,291,**485**,649,710 |
-| 加速  | 332,**543**,743        |
-| 减速  | 183,**184**,514        |
+| 类别  | 场景ID                                                          |
+|-----|---------------------------------------------------------------|
+| 变道  | **9**,239,438                                                 |
+| 左转  | 52,356,**553**                                                |
+| 右转  | **146**,402,1001                                              |
+| 路口  | 29,291,**485**,649,710,2112,3933,4563,10057,13467,13604,19567 |
+| 加速  | 332,**543**,743                                               |
+| 减速  | 183,**184**,514                                               |
