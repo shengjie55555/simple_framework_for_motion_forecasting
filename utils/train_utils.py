@@ -94,17 +94,20 @@ class Loader(object):
             "vectornet": "vectornet",
             "lanegcn": "lanegcn",
             "mhl": "mhl",
-            "atds": "atds"
+            "atds": "atds",
+            "ds": "ds"
         }
         self.class_dict = {
             "vectornet": "VectorNet",
             "lanegcn": "LaneGCN",
             "mhl": "MHL",
-            "atds": "ATDS"
+            "atds": "ATDS",
+            "ds": "DS"
         }
-        assert model_name in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"], \
-            '{} is not in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", "ATDS", "atds"]'.format(
-                model_name)
+        assert model_name in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl",
+                              "ATDS", "atds", "DS", "ds"], \
+            '{} is not in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", ' \
+            '"ATDS", "atds", "DS", "ds"]'.format(model_name)
         self.model_name = model_name.lower()
 
     def load(self):

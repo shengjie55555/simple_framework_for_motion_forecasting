@@ -215,3 +215,13 @@ class LaneGCNAverageLoss(VectorNetAverageLoss):
 class LaneGCNAverageMetrics(MHLAverageMetrics):
     def __init__(self, cfg):
         super(LaneGCNAverageMetrics, self).__init__(cfg)
+
+
+class DSAverageLoss(VectorNetAverageLoss):
+    def __init__(self):
+        super(DSAverageLoss, self).__init__()
+
+
+class DSAverageMetrics(MHLAverageMetrics):
+    def __init__(self, cfg):
+        super(DSAverageMetrics, self).__init__(cfg)

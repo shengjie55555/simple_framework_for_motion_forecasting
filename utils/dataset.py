@@ -108,6 +108,11 @@ class LaneGCNDataset(ATDSDataset):
         super(LaneGCNDataset, self).__init__(path, mode)
 
 
+class DSDataset(ATDSDataset):
+    def __init__(self, path, mode):
+        super(DSDataset, self).__init__(path, mode)
+
+
 class DataAug(object):
     @classmethod
     def simple_aug(cls, data):
