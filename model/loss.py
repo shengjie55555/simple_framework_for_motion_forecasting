@@ -45,6 +45,20 @@ class LaneGCNLoss(nn.Module):
         return loss_out
 
 
+class DSLoss(nn.Module):
+    def __init__(self, cfg, device):
+        super(DSLoss, self).__init__()
+        self.cfg = cfg
+        self.device = device
+        self.pred_loss = VectorNetPredLoss(cfg)
+
+    def forward(self, out, data):
+        loss_out = self.pred_loss(out, gpu(data["gt_preds"], self.device), gpu(data["has_preds"], self.device))
+        loss_out["loss"] = loss_out["cls_loss"] / (loss_out["num_cls"] + 1e-10) + \
+                           loss_out["reg_loss"] / (loss_out["num_reg"] + 1e-10)
+        return loss_out
+
+
 class ATDSLoss(nn.Module):
     def __init__(self, config, device):
         super(ATDSLoss, self).__init__()
