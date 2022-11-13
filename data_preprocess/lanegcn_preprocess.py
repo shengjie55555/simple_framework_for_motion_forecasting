@@ -98,7 +98,7 @@ class PreProcess(object):
             agent_traj.shape, av_traj.shape)
 
         trajs = [agent_traj, av_traj]
-        pad_flags = [np.zeros_like(ts), np.zeros_like(ts)]
+        pad_flags = [np.ones_like(ts), np.ones_like(ts)]
 
         track_ids = np.unique(df["TRACK_ID"].values)
         for idx in track_ids:
@@ -110,13 +110,13 @@ class PreProcess(object):
             ts_mot = np.array(mot_traj['TIMESTAMP'].values).astype(np.float)
             mot_traj = np.stack((mot_traj['X'].values, mot_traj['Y'].values), axis=1)
 
-            # ~ remove traj after t_obs
-            if np.all(ts_mot > t_obs):
+            # ~ remove traj after t_obs or without t_obs
+            if np.all(ts_mot > t_obs) or np.all(ts_mot != t_obs):
                 continue
 
             _, idcs, _ = np.intersect1d(ts, ts_mot, return_indices=True)
-            padded = np.ones_like(ts)
-            padded[idcs] = 0
+            padded = np.zeros_like(ts)
+            padded[idcs] = 1
 
             mot_traj_pad = np.full(agent_traj[:, :2].shape, None)
             mot_traj_pad[idcs] = mot_traj
