@@ -2,21 +2,21 @@ import torch
 import torch.nn as nn
 from einops import repeat, rearrange
 from model.decoder import SimpleDecoder as Decoder
-from model.layers import Linear, LinearRes
+from model.atds import Linear
 from utils.data_utils import gpu
 
 
 class VectorNet(nn.Module):
     def __init__(self, cfg, device):
         super(VectorNet, self).__init__()
-        a_dim, m_dim, out_dim, a_num_layer, m_num_layer, num_mode, pred_len = \
+        n_agt, n_lane, n_out, n_agent_layer, n_lane_layer, num_mode, pred_len = \
             cfg["n_agent"], cfg["n_lane"], cfg["n_feature"], \
-            cfg["n_layer_agent"], cfg["n_layer_lane"], cfg["num_mode"], cfg["pred_len"]
+            cfg["n_agent_layer"], cfg["n_lane_layer"], cfg["num_mode"], cfg["pred_len"]
         self.device = device
-        self.agent_encoder = AgentEncoder(a_dim, out_dim, a_num_layer)
-        self.lane_encoder = LaneEncoder(m_dim, out_dim, m_num_layer)
-        self.interaction_encoder = InteractionEncoder(out_dim)
-        self.decoder = Decoder(out_dim, num_mode, pred_len, is_cat=True)
+        self.agent_encoder = AgentEncoder(n_agt, n_out, n_agent_layer)
+        self.lane_encoder = LaneEncoder(n_lane, n_out, n_lane_layer)
+        self.interaction_encoder = InteractionEncoder(n_out)
+        self.decoder = Decoder(n_out, num_mode, pred_len)
 
     def forward(self, data):
         agents, agent_ids, agent_ctrs = agent_gather(gpu(data["trajs_obs"], self.device),
@@ -26,19 +26,9 @@ class VectorNet(nn.Module):
         agents = self.agent_encoder(agents)
         lanes = self.lane_encoder(lanes, lane_seg)
 
-        i_agents, i_lanes = self.interaction_encoder(agents, agent_ids, lanes, lane_ids)
+        agents = self.interaction_encoder(agents, agent_ids, lanes, lane_ids)
 
-        agents = torch.cat([agents, i_agents], dim=-1)
-        reg, cls = self.decoder(agents)
-
-        out = dict()
-        out['cls'], out['reg'] = [], []
-        for i in range(len(agent_ids)):
-            ids = agent_ids[i]
-            ctrs = agent_ctrs[i].view(-1, 1, 1, 2)
-            reg[ids] = reg[ids] + ctrs
-            out['cls'].append(cls[ids])
-            out['reg'].append(reg[ids])
+        out = self.decoder(agents, agent_ids, agent_ctrs)
 
         return out
 
@@ -89,6 +79,44 @@ def graph_gather(graphs):
     return lanes, lane_ids, lane_ctrs, lane_seg
 
 
+class LinearRes(nn.Module):
+    def __init__(self, n_in, n_out, norm="ln", n_l=10):
+        super(LinearRes, self).__init__()
+        self.linear1 = nn.Linear(n_in, n_out, bias=False)
+        self.linear2 = nn.Linear(n_out, n_out, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+
+        assert norm in ["ln", "gn"], "{} is not in [ln, gn]".format(norm)
+        if norm == "ln":
+            self.norm1 = nn.LayerNorm([n_l, n_out])
+            self.norm2 = nn.LayerNorm([n_l, n_out])
+        else:
+            self.norm1 = nn.GroupNorm(1, n_out)
+            self.norm2 = nn.GroupNorm(1, n_out)
+
+        if n_in != n_out:
+            self.transform = nn.Sequential(
+                nn.Linear(n_in, n_out, bias=False),
+                nn.LayerNorm([n_l, n_out]) if norm == "ln" else nn.GroupNorm(1, n_out))
+        else:
+            self.transform = None
+
+    def forward(self, x):
+        out = self.linear1(x)
+        out = self.norm1(out)
+        out = self.relu(out)
+        out = self.linear2(out)
+        out = self.norm2(out)
+
+        if self.transform is not None:
+            out += self.transform(x)
+        else:
+            out += x
+
+        out = self.relu(out)
+        return out
+
+
 class AgentEncoder(nn.Module):
     def __init__(self, in_dim, out_dim, num_layers):
         super(AgentEncoder, self).__init__()
@@ -97,7 +125,7 @@ class AgentEncoder(nn.Module):
         self.backbone = nn.ModuleList()
         for i in range(num_layers):
             hidden_dim = out_dim // (2 ** (num_layers - i - 1))
-            self.backbone.append(LinearRes(in_dim, hidden_dim, hidden_dim))
+            self.backbone.append(LinearRes(in_dim, hidden_dim, "ln", 20))
             in_dim = hidden_dim
 
         self.h0 = nn.Parameter(torch.zeros(1, 1, out_dim))  # num_layer_in_LSTM * n * out_dim
@@ -119,17 +147,17 @@ class LaneEncoder(nn.Module):
         super(LaneEncoder, self).__init__()
         assert out_dim % (2 ** num_layers) == 0, "feature dim: {}, num_layer: {}".format(out_dim, num_layers)
 
-        self.seg = LinearRes(in_dim * 2, out_dim, out_dim)
+        self.seg = LinearRes(in_dim * 2, out_dim, "gn")
 
         self.backbone = nn.ModuleList()
         for i in range(num_layers):
             hidden_dim = out_dim // (2 ** (num_layers - i))
-            self.backbone.append(LinearRes(in_dim, hidden_dim, hidden_dim))
+            self.backbone.append(LinearRes(in_dim, hidden_dim, "ln", 10))
             in_dim = hidden_dim + hidden_dim
 
         self.max_pool = nn.MaxPool1d(kernel_size=10, stride=1)
 
-        self.fuse = LinearRes(out_dim, out_dim, out_dim)
+        self.fuse = LinearRes(out_dim, out_dim, "gn")
 
     def forward(self, lanes, lane_seg):
         for layer in self.backbone:
@@ -199,6 +227,5 @@ class InteractionEncoder(nn.Module):
         nodes = self.relu(nodes + res)
 
         agent_ids = torch.cat(agent_ids, dim=0)
-        lane_ids = torch.cat(lane_ids, dim=0)
 
-        return nodes[agent_ids], nodes[lane_ids]
+        return nodes[agent_ids]
