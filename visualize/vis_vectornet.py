@@ -34,7 +34,7 @@ class Vis(Visualizer):
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(y_min, y_max)
 
-        self.argo_vis.show_surrounding_elements(ax, data["city"][0], x_min, x_max, y_min, y_max)
+        self.argo_vis.show_surrounding_elements(ax, data["city_name"][0], x_min, x_max, y_min, y_max)
         self.plot_obs_trajs(ax, trajs_obs, pad_obs)
         self.plot_av_trajs(ax, trajs_av)
         self.plot_agent_trajs(ax, trajs_agent_fut, trajs_agent_obs, preds, cls)

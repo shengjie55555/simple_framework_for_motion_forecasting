@@ -8,8 +8,8 @@ model_name = "vectornet"
 config["n_agent"] = 5           # (x, y, dx, dy, mask)
 config["n_lane"] = 2            # (x, y)
 config["n_feature"] = 128       # feature dimension
-config["n_layer_agent"] = 3     # number of layers in agent encoder's backbone
-config["n_layer_lane"] = 3      # number of layers in lane encoder's backbone
+config["n_agent_layer"] = 3     # number of layers in agent encoder's backbone
+config["n_lane_layer"] = 3      # number of layers in lane encoder's backbone
 
 config["num_mode"] = 6          # num of predicted trajectories
 config["pred_len"] = 30         # predicted horizon

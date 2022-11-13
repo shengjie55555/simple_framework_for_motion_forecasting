@@ -97,7 +97,7 @@ class VectorNetDataset(Dataset):
         ts = df_dict["TIMESTAMP"]
 
         trajs = df_dict["TRAJS"]
-        pad_flags = 1 - df_dict["PAD_FLAGS"]  # 0 for missing
+        pad_flags = df_dict["PAD_FLAGS"]  # 0 for missing
         graph = df_dict["GRAPH"]
 
         data = {
