@@ -5,6 +5,65 @@ import pandas as pd
 from torch.utils.data import Dataset
 
 
+class ATDS2Dataset(Dataset):
+    def __init__(self, path, mode):
+        super(ATDS2Dataset, self).__init__()
+        self.path = path
+        self.mode = mode
+        self.obs_len = 20
+        self.train = False
+
+        if self.mode == "train":
+            self.train = True
+
+        file_list = os.listdir(path)
+        file_list.sort(key=lambda x: int(x.split(".")[0]))
+        self.file_list = file_list
+
+    def __len__(self):
+        return len(self.file_list)
+
+    def __getitem__(self, item):
+        file_name = self.file_list[item]
+        df = pd.read_pickle(os.path.join(self.path, file_name))
+
+        df_dict = {}
+        for key in list(df.keys()):
+            df_dict[key] = df[key].values[0]
+
+        seq_id = df_dict["SEQ_ID"]
+        city_name = df_dict["CITY_NAME"]
+        orig = df_dict["ORIG"]
+        rot = df_dict["ROT"]
+        ts = df_dict["TIMESTAMP"]
+
+        trajs = df_dict["TRAJS"]
+        pad_flags = df_dict["PAD_FLAGS"]  # 0 for missing
+        graph = df_dict["GRAPH"]
+
+        # feats, locs, ctrs
+        locs = np.concatenate([trajs[:, :self.obs_len],
+                               np.expand_dims(pad_flags[:, :self.obs_len], axis=-1)], axis=-1)
+        feats = np.zeros_like(trajs[:, :self.obs_len, :2])
+        feats[:, 1:, :] = locs[:, 1:, :2] - locs[:, :-1, :2]
+        feats = np.concatenate([feats, np.expand_dims(pad_flags[:, :self.obs_len], axis=-1)], axis=-1)
+        ctrs = locs[:, -1, :2]
+
+        data = {
+            "argo_id": seq_id,
+            "city": city_name,
+            "orig": orig,
+            "gt_preds": trajs[:, self.obs_len:],
+            "has_preds": pad_flags[:, self.obs_len:].astype(np.bool_),
+            "rot": rot,
+            "feats": feats,
+            "ctrs": ctrs,
+            "graph": graph,
+            "locs": locs
+        }
+        return data
+
+
 class VectorNetDataset(Dataset):
     def __init__(self, path, mode):
         super(VectorNetDataset, self).__init__()
