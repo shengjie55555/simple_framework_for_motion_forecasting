@@ -91,23 +91,21 @@ def update_cfg(args, cfg, is_eval=False):
 class Loader(object):
     def __init__(self, model_name):
         self.module_dict = {
-            "vectornet": "vectornet",
-            "lanegcn": "lanegcn",
             "mhl": "mhl",
+            "mhlv": "mhlv",
+            "mhll": "mhll",
+            "mhld": "mhld",
             "atds": "atds",
-            "ds": "ds"
         }
         self.class_dict = {
-            "vectornet": "VectorNet",
-            "lanegcn": "LaneGCN",
             "mhl": "MHL",
+            "mhlv": "MHLV",
+            "mhll": "MHLL",
+            "mhld": "MHLD",
             "atds": "ATDS",
-            "ds": "DS"
         }
-        assert model_name in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl",
-                              "ATDS", "atds", "DS", "ds"], \
-            '{} is not in ["VectorNet", "vectornet", "LaneGCN", "lanegcn", "MHL", "mhl", ' \
-            '"ATDS", "atds", "DS", "ds"]'.format(model_name)
+        assert model_name in ["mhl", "MHL", "mhlv", "MHLV", "mhll", "MHLL", "mhld", "MHLD", "atds", "ATDS"], \
+            '{} is not in ["mhl", "MHL", "mhlv", "MHLV", "mhll", "MHLL", "mhld", "MHLD", "atds", "ATDS"]'.format(model_name)
         self.model_name = model_name.lower()
 
     def load(self):

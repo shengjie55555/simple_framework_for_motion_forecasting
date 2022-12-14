@@ -2,28 +2,28 @@ import os
 
 
 config = dict()
-model_name = "vectornet"
+model_name = "mhll"
 
 # net
-config["n_agent"] = 5           # (x, y, dx, dy, mask)
-config["n_lane"] = 2            # (x, y)
-config["n_feature"] = 128       # feature dimension
-config["n_agent_layer"] = 3     # number of layers in agent encoder's backbone
-config["n_lane_layer"] = 3      # number of layers in lane encoder's backbone
+config["n_agent"] = 5            # (x, y, dx, dy, mask)
+config["n_feature"] = 128        # feature dimension
+config["n_agent_layer"] = 3      # number of layers in agent encoder's backbone
+config["map2agent_dist"] = 15.0  # map to agent threshold
+config["num_scales"] = 6         # dilated lane
 
-config["num_mode"] = 6          # num of predicted trajectories
-config["pred_len"] = 30         # predicted horizon
-config["obs_len"] = 20          # observed horizon
+config["num_mode"] = 6           # num of predicted trajectories
+config["pred_len"] = 30          # predicted horizon
+config["obs_len"] = 20           # observed horizon
 
-config["cls_th"] = 10.0         # Calculate cls loss for those samples whose minFDE is lower than this threshold.
-config["cls_ignore"] = 0.2      # nms for different goals
-config["mgn"] = 0.2             # margin
+config["cls_th"] = 10.0          # Calculate cls loss for those samples whose minFDE is lower than this threshold.
+config["cls_ignore"] = 0.2       # nms for different goals
+config["mgn"] = 0.2              # margin
 
-config["cls_coef"] = 1.0        # cls loss coefficient
-config["reg_coef"] = 1.0        # reg loss coefficient
+config["cls_coef"] = 1.0         # cls loss coefficient
+config["reg_coef"] = 1.0         # reg loss coefficient
 
 # weights
-config["ignored_modules"] = []  # Do not load weights of these modules.
+config["ignored_modules"] = []   # Do not load weights of these modules.
 
 # Processed Dataset
 config["processed_train"] = "./processed/train/"

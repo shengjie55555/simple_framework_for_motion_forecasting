@@ -3,9 +3,9 @@ import torch.nn as nn
 from utils.data_utils import gpu
 
 
-class VectorNetLoss(nn.Module):
+class MHLVLoss(nn.Module):
     def __init__(self, cfg, device):
-        super(VectorNetLoss, self).__init__()
+        super(MHLVLoss, self).__init__()
         self.cfg = cfg
         self.device = device
         self.pred_loss = VectorNetPredLoss(cfg)
@@ -31,9 +31,9 @@ class MHLLoss(nn.Module):
         return loss_out
 
 
-class LaneGCNLoss(nn.Module):
+class MHLLLoss(nn.Module):
     def __init__(self, cfg, device):
-        super(LaneGCNLoss, self).__init__()
+        super(MHLLLoss, self).__init__()
         self.cfg = cfg
         self.device = device
         self.pred_loss = VectorNetPredLoss(cfg)
@@ -45,9 +45,9 @@ class LaneGCNLoss(nn.Module):
         return loss_out
 
 
-class DSLoss(nn.Module):
+class MHLDLoss(nn.Module):
     def __init__(self, cfg, device):
-        super(DSLoss, self).__init__()
+        super(MHLDLoss, self).__init__()
         self.cfg = cfg
         self.device = device
         self.pred_loss = VectorNetPredLoss(cfg)

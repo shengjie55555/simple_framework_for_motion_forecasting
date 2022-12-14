@@ -6,9 +6,9 @@ from model.atds import Linear
 from utils.data_utils import gpu
 
 
-class VectorNet(nn.Module):
+class MHLV(nn.Module):
     def __init__(self, cfg, device):
-        super(VectorNet, self).__init__()
+        super(MHLV, self).__init__()
         n_agt, n_lane, n_out, n_agent_layer, n_lane_layer, num_mode, pred_len = \
             cfg["n_agent"], cfg["n_lane"], cfg["n_feature"], \
             cfg["n_agent_layer"], cfg["n_lane_layer"], cfg["num_mode"], cfg["pred_len"]

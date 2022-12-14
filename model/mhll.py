@@ -6,14 +6,13 @@ from model.atds import Linear, Att
 from utils.data_utils import gpu, to_long
 
 
-class DS(nn.Module):
+class MHLL(nn.Module):
     def __init__(self, cfg, device):
-        super(DS, self).__init__()
-        n_agt, n_out, n_agt_layer, m2m_dist, m2a_dist, n_scales, num_mode, pred_len = \
-            cfg["n_agent"], cfg["n_feature"], cfg["n_agent_layer"], cfg["map2map_dist"], \
+        super(MHLL, self).__init__()
+        n_agt, n_out, n_agt_layer, m2a_dist, n_scales, num_mode, pred_len = \
+            cfg["n_agent"], cfg["n_feature"], cfg["n_agent_layer"], \
             cfg["map2agent_dist"], cfg["num_scales"], cfg["num_mode"], cfg["pred_len"]
         self.device = device
-        self.m2m_dist = m2m_dist
         self.m2a_dist = m2a_dist
 
         self.agent_encoder = AgentEncoder(n_agt, n_out, n_agt_layer)
@@ -28,7 +27,7 @@ class DS(nn.Module):
         agents = self.agent_encoder(agents)
 
         graph = graph_gather(to_long(gpu(data["graph"], self.device)))
-        nodes, node_ids, node_ctrs = self.map_encoder(graph, self.m2m_dist, agent_ctrs)
+        nodes, node_ids, node_ctrs = self.map_encoder(graph)
 
         agents = self.m2a(agents, agent_ids, agent_ctrs, nodes, node_ids, node_ctrs, self.m2a_dist)
         agents = self.a2a(agents, agent_ids)
@@ -147,7 +146,7 @@ class MapEncoder(nn.Module):
 
         self.meta = Linear(n_out + 4, n_out)
 
-        keys = ["ctr", "norm", "ctr2"]
+        keys = ["ctr", "norm", "ctr2", "left", "right"]
         for i in range(n_scales):
             keys.append("pre" + str(i))
             keys.append("suc" + str(i))
@@ -167,12 +166,10 @@ class MapEncoder(nn.Module):
 
         for key in fuse:
             fuse[key] = nn.ModuleList(fuse[key])
-        fuse["graph_attention"] = LocalAtt(n_out, n_out)
-
         self.fuse = nn.ModuleDict(fuse)
         self.relu = nn.ReLU(inplace=True)
 
-    def forward(self, graph, m2m_dist, roi_ctrs):
+    def forward(self, graph):
         ctrs = torch.cat(graph["ctrs"], 0)
         feat = self.input(ctrs)
         feat += self.seg(graph["feats"])
@@ -201,10 +198,18 @@ class MapEncoder(nn.Module):
                         self.fuse[key][i](feat[graph[k1][k2]["v"]]),
                     )
 
-            temp = self.fuse["graph_attention"](
-                temp, graph["idcs"], graph["ctrs"],
-                temp, graph["idcs"], graph["ctrs"], m2m_dist, roi_ctrs
-            )
+            if len(graph["left"]["u"] > 0):
+                temp.index_add_(
+                    0,
+                    graph["left"]["u"],
+                    self.fuse["left"][i](feat[graph["left"]["v"]]),
+                )
+            if len(graph["right"]["u"] > 0):
+                temp.index_add_(
+                    0,
+                    graph["right"]["u"],
+                    self.fuse["right"][i](feat[graph["right"]["v"]]),
+                )
 
             feat = self.fuse["norm"][i](temp)
             feat = self.relu(feat)
@@ -288,99 +293,6 @@ class A2A(nn.Module):
         nodes = self.relu(nodes + res)
 
         return nodes
-
-
-class LocalAtt(nn.Module):
-    def __init__(self, n_agt, n_ctx):
-        super(LocalAtt, self).__init__()
-        ng = 1
-        self.n_heads = 6
-        self.scale = n_ctx ** -0.5
-
-        self.dist = nn.Sequential(
-            nn.Linear(2, n_ctx),
-            nn.ReLU(inplace=True),
-            Linear(n_ctx, n_ctx, ng=ng),
-        )
-
-        self.to_q = Linear(n_agt, self.n_heads * n_ctx, ng=ng, act=False)
-        self.to_k = Linear(n_agt, self.n_heads * n_ctx, ng=ng, act=False)
-        self.to_v = Linear(n_agt, self.n_heads * n_ctx, ng=ng, act=True)
-        self.sigmoid = nn.Sigmoid()
-
-        self.agt = nn.Linear(n_agt, n_agt, bias=False)
-        self.norm = nn.GroupNorm(ng, n_agt)
-        self.linear = Linear(n_agt, n_agt, ng=ng, act=False)
-        self.relu = nn.ReLU(inplace=True)
-
-        self.to_out = nn.Sequential(
-            Linear(self.n_heads * n_ctx, n_agt, ng=ng),
-            nn.Linear(n_agt, n_agt, bias=False),
-        )
-
-    def forward(self, agts, agt_idcs, agt_ctrs, ctx, ctx_idcs, ctx_ctrs, dist_th, roi_ctrs):
-        res = agts
-        if len(ctx) == 0:
-            agts = self.agt(agts)
-            agts = self.relu(agts)
-            agts = self.linear(agts)
-            agts += res
-            agts = self.relu(agts)
-            return agts
-
-        batch_size = len(agt_idcs)
-        hi, wi = [], []
-        hi_count, wi_count = 0, 0
-        for i in range(batch_size):
-            # pick out those nodes which are close to actors
-            dist = agt_ctrs[i].view(-1, 1, 2) - roi_ctrs[i].view(1, -1, 2)
-            dist = torch.sqrt((dist ** 2).sum(2))
-            mask = dist <= dist_th
-            selected_idcs = torch.unique(torch.nonzero(mask, as_tuple=False)[:, 0])
-            selected_agt_ctrs = agt_ctrs[i][selected_idcs]
-
-            dist = selected_agt_ctrs.view(-1, 1, 2) - ctx_ctrs[i].view(1, -1, 2)
-            dist = torch.sqrt((dist ** 2).sum(2))
-            mask = dist <= dist_th
-
-            idcs = torch.nonzero(mask, as_tuple=False)
-            if len(idcs) == 0:
-                continue
-
-            hi.append(selected_idcs[idcs[:, 0]] + hi_count)
-            wi.append(idcs[:, 1] + wi_count)
-            hi_count += len(agt_idcs[i])
-            wi_count += len(ctx_idcs[i])
-        hi = torch.cat(hi, 0)
-        wi = torch.cat(wi, 0)
-
-        agt_ctrs = torch.cat(agt_ctrs, 0)
-        ctx_ctrs = torch.cat(ctx_ctrs, 0)
-        dist = agt_ctrs[hi] - ctx_ctrs[wi]
-        dist = self.dist(dist)
-
-        q = self.relu(self.to_q(agts[hi] + dist))
-        k = self.relu(self.to_k(ctx[wi] + dist))
-        v = self.to_v(ctx[wi])
-
-        query, key, value = map(lambda t: rearrange(t, "n (h d) -> n h d", h=self.n_heads).unsqueeze(-2), [q, k, v])
-
-        gates = torch.matmul(query, key.transpose(-1, -2)) * self.scale
-        gates = self.sigmoid(gates)
-
-        out = torch.matmul(gates, value).squeeze(-2)
-        out = rearrange(out, "n h d -> n (h d)")
-        out = self.to_out(out)
-
-        agts = self.agt(agts)
-        agts.index_add_(0, hi, out)
-        agts = self.norm(agts)
-        agts = self.relu(agts)
-
-        agts = self.linear(agts)
-        agts += res
-        agts = self.relu(agts)
-        return agts
 
 
 class LinearRes(nn.Module):

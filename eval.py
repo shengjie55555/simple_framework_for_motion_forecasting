@@ -4,7 +4,6 @@ import torch
 import warnings
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from visualize.vis_vectornet import Vis
 from utils.data_utils import collate_fn
 from utils.train_utils import init_seeds, load_prev_weights
 from utils.train_utils import Loader, update_cfg

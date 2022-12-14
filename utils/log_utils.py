@@ -25,7 +25,7 @@ class Logger(object):
                 self.add_scalar(title, val, it)
 
 
-class VectorNetAverageLoss(object):
+class MHLVAverageLoss(object):
     def __init__(self):
         self.loss_out = {}
 
@@ -59,7 +59,7 @@ class VectorNetAverageLoss(object):
         return loss_out
 
 
-class VectorNetAverageMetrics(object):
+class MHLVAverageMetrics(object):
     def __init__(self, cfg):
         self.reg = {}
         self.cls = {}
@@ -178,7 +178,7 @@ class ATDSAverageMetrics(object):
         return metrics_out
 
 
-class MHLAverageLoss(VectorNetAverageLoss):
+class MHLAverageLoss(MHLVAverageLoss):
     def __init__(self):
         super(MHLAverageLoss, self).__init__()
 
@@ -207,21 +207,21 @@ class MHLAverageMetrics(ATDSAverageMetrics):
         return metrics_out
 
 
-class LaneGCNAverageLoss(VectorNetAverageLoss):
+class MHLLAverageLoss(MHLVAverageLoss):
     def __init__(self):
-        super(LaneGCNAverageLoss, self).__init__()
+        super(MHLLAverageLoss, self).__init__()
 
 
-class LaneGCNAverageMetrics(MHLAverageMetrics):
+class MHLLAverageMetrics(MHLAverageMetrics):
     def __init__(self, cfg):
-        super(LaneGCNAverageMetrics, self).__init__(cfg)
+        super(MHLLAverageMetrics, self).__init__(cfg)
 
 
-class DSAverageLoss(VectorNetAverageLoss):
+class MHLDAverageLoss(MHLVAverageLoss):
     def __init__(self):
-        super(DSAverageLoss, self).__init__()
+        super(MHLDAverageLoss, self).__init__()
 
 
-class DSAverageMetrics(MHLAverageMetrics):
+class MHLDAverageMetrics(MHLAverageMetrics):
     def __init__(self, cfg):
-        super(DSAverageMetrics, self).__init__(cfg)
+        super(MHLDAverageMetrics, self).__init__(cfg)

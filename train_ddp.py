@@ -5,7 +5,6 @@ import warnings
 import torch.distributed as dist
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from visualize.vis_vectornet import Vis
 from utils.data_utils import collate_fn, create_dirs, save_log
 from utils.log_utils import Logger
 from utils.train_utils import worker_init_fn, init_seeds, load_prev_weights, save_ckpt

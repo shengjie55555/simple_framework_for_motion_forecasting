@@ -64,9 +64,9 @@ class ATDS2Dataset(Dataset):
         return data
 
 
-class VectorNetDataset(Dataset):
+class MHLVDataset(Dataset):
     def __init__(self, path, mode):
-        super(VectorNetDataset, self).__init__()
+        super(MHLVDataset, self).__init__()
         self.path = path
         self.mode = mode
         self.obs_len = 20
@@ -162,14 +162,14 @@ class MHLDataset(ATDSDataset):
         super(MHLDataset, self).__init__(path, mode)
 
 
-class LaneGCNDataset(ATDSDataset):
+class MHLLDataset(ATDSDataset):
     def __init__(self, path, mode):
-        super(LaneGCNDataset, self).__init__(path, mode)
+        super(MHLLDataset, self).__init__(path, mode)
 
 
-class DSDataset(ATDSDataset):
+class MHLDDataset(ATDSDataset):
     def __init__(self, path, mode):
-        super(DSDataset, self).__init__(path, mode)
+        super(MHLDDataset, self).__init__(path, mode)
 
 
 class DataAug(object):

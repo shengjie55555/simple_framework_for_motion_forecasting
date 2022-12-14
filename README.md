@@ -25,13 +25,13 @@
 4. 学习率调整策略默认```MultiStepLR```
 
 ## 框架中已有模型
-| methods   | config                      | dataset                        | model                     | loss                     | average_loss                         | average_metrics                         | vis                         |
-|-----------|-----------------------------|--------------------------------|---------------------------|--------------------------|--------------------------------------|-----------------------------------------|-----------------------------|
-| ATDS      | config.cfg_atds.config      | utils.dataset.ATDSDataset      | model.atds.ATDS           | model.loss.ATDSLoss      | utils.log_utils.ATDSAverageLoss      | utils.log_utils.ATDSAverageMetrics      | visualize.vis_atds.Vis      |
-| VectorNet | config.cfg_vectornet.config | utils.dataset.VectorNetDataset | model.vectornet.VectorNet | model.loss.VectorNetLoss | utils.log_utils.VectorNetAverageLoss | utils.log_utils.VectorNetAverageMetrics | visualize.vis_vectornet.Vis |
-| MHL       | config.cfg_mhl.config       | utils.dataset.ATDSDataset      | model.mhl.MHL             | model.loss.MHLLoss       | utils.log_utils.MHLAverageLoss       | utils.log_utils.MHLAverageMetrics       | visualize.vis_mhl.Vis       |
-| LaneGCN   | config.cfg_lanegcn.config   | utils.dataset.LaneGCNDataset   | model.lanegcn.LaneGCN     | model.loss.LaneGCNLoss   | utils.log_utils.LaneGCNAverageLoss   | utils.log_utils.LaneGCNAverageMetrics   | visualize.vis_lanegcn.Vis   |
-| DS        | config.cfg_ds.config        | utils.dataset.DSDataset        | model.ds.DS               | model.loss.DSLoss        | utils.log_utils.DSAverageLoss        | utils.log_utils.DSAverageMetrics        | visualize.vis_ds.Vis        |
+| methods | trajectory encoder | map encoder | interaction           | decoder              |
+|---------|--------------------|-------------|-----------------------|----------------------|
+| MHL     | MLP + LSTM         | None        | Self-attention        | MLP + residual block |
+| MHLV    | MLP + LSTM         | Vectornet   | Global self-attention | MLP + residual block |
+| MHLL    | MLP + LSTM         | LaneGCN     | Cross-attention       | MLP + residual block |
+| MHLD    | MLP + LSTM         | DS          | Cross-attention       | MLP + residual block |
+| ATDS    | Conv1D + Attention | LaneGCN     | Cross-attention       | Pyramid decoder      |
 
 ## 复杂场景
 考虑场景的不确定性和驾驶员决策的不确定性分成以下几类：
@@ -48,12 +48,12 @@
 | 减速  | 183,**184**,514                                               |
 
 ## 验证集结果
-| methods       | minADE_1 | minFDE_1 | MR_1   | minADE_6 | minFDE_6 | MR_6   | brier-minFDE |
-|---------------|----------|----------|--------|----------|----------|--------|--------------|
-| MHL           | 1.5562   | 3.4983   | 0.5550 | 0.8032   | 1.3291   | 0.1568 | 1.9275       |
-| MHL+VectorNet | 1.4705   | 3.2696   | 0.5355 | 0.7478   | 1.1725   | 0.1250 | 1.7821       |
-| MHL+LaneGCN   | 1.4344   | 3.1791   | 0.5173 | 0.7312   | 1.1146   | 0.1101 | 1.7227       |
-| MHL+DS        | 1.4448   | 3.2107   | 0.5333 | 0.7276   | 1.1228   | 0.1089 | 1.7252       |
-| ATDS-v2.0     | 1.3486   | 2.9541   | 0.4916 | 0.7059   | 1.0604   | 0.0991 | 1.6550       |
-| ATDS-v4.2     | 1.3214   | 2.8773   | 0.4836 | 0.7015   | 1.0458   | 0.0988 | 1.6333       |
-| ATDS-v4.3     | 1.3084   | 2.8709   | 0.4817 | 0.6936   | 1.0315   | 0.0953 | 1.6196       |
+| methods   | minADE_1 | minFDE_1 | MR_1   | minADE_6 | minFDE_6 | MR_6   | brier-minFDE |
+|-----------|----------|----------|--------|----------|----------|--------|--------------|
+| MHL       | 1.5562   | 3.4983   | 0.5550 | 0.8032   | 1.3291   | 0.1568 | 1.9275       |
+| MHLV      | 1.4705   | 3.2696   | 0.5355 | 0.7478   | 1.1725   | 0.1250 | 1.7821       |
+| MHLL      | 1.4344   | 3.1791   | 0.5173 | 0.7312   | 1.1146   | 0.1101 | 1.7227       |
+| MHLD      | 1.4448   | 3.2107   | 0.5333 | 0.7276   | 1.1228   | 0.1089 | 1.7252       |
+| ATDS-v2.0 | 1.3486   | 2.9541   | 0.4916 | 0.7059   | 1.0604   | 0.0991 | 1.6550       |
+| ATDS-v4.2 | 1.3214   | 2.8773   | 0.4836 | 0.7015   | 1.0458   | 0.0988 | 1.6333       |
+| ATDS-v4.3 | 1.3084   | 2.8709   | 0.4817 | 0.6936   | 1.0315   | 0.0953 | 1.6196       |

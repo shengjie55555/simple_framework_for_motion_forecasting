@@ -2,7 +2,7 @@ import os
 
 
 config = dict()
-model_name = "mhl"
+model_name = "mhld"
 
 # net
 config["n_agent"] = 5            # (x, y, dx, dy, mask)
