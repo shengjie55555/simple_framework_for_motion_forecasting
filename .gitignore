@@ -11,6 +11,9 @@ __pycache__/
 logs/
 results/
 
+# debug
+debug/
+
 # data
 processed/
 
