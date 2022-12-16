@@ -178,6 +178,16 @@ class ATDSAverageMetrics(object):
         return metrics_out
 
 
+class KANAverageLoss(ATDSAverageLoss):
+    def __init__(self):
+        super(KANAverageLoss, self).__init__()
+
+
+class KANAverageMetrics(ATDSAverageMetrics):
+    def __init__(self, cfg):
+        super(KANAverageMetrics, self).__init__(cfg)
+
+
 class MHLAverageLoss(MHLVAverageLoss):
     def __init__(self):
         super(MHLAverageLoss, self).__init__()

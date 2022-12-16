@@ -96,6 +96,7 @@ class Loader(object):
             "mhll": "mhll",
             "mhld": "mhld",
             "atds": "atds",
+            "kan": "kan",
         }
         self.class_dict = {
             "mhl": "MHL",
@@ -103,9 +104,12 @@ class Loader(object):
             "mhll": "MHLL",
             "mhld": "MHLD",
             "atds": "ATDS",
+            "kan": "KAN",
         }
-        assert model_name in ["mhl", "MHL", "mhlv", "MHLV", "mhll", "MHLL", "mhld", "MHLD", "atds", "ATDS"], \
-            '{} is not in ["mhl", "MHL", "mhlv", "MHLV", "mhll", "MHLL", "mhld", "MHLD", "atds", "ATDS"]'.format(model_name)
+        assert model_name in ["mhl", "MHL", "mhlv", "MHLV", "mhll", "MHLL", "mhld", "MHLD", "atds", "ATDS",
+                              "kan", "KAN"], \
+            '{} is not in ["mhl", "MHL", "mhlv", "MHLV", "mhll", "MHLL", "mhld", "MHLD", "atds", "ATDS", ' \
+            '"kan", "KAN"]'.format(model_name)
         self.model_name = model_name.lower()
 
     def load(self):

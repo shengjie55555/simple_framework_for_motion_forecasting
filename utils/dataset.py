@@ -157,6 +157,11 @@ class ATDSDataset(Dataset):
             return data
 
 
+class KANDataset(ATDSDataset):
+    def __init__(self, path, mode):
+        super(KANDataset, self).__init__(path, mode)
+
+
 class MHLDataset(ATDSDataset):
     def __init__(self, path, mode):
         super(MHLDataset, self).__init__(path, mode)
