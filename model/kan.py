@@ -593,11 +593,14 @@ class TrajectoryDecoder(nn.Module):
         for i in range(3):
             layers.append(Linear(in_dims[i], in_dims[i + 1], ng=1))
             layers.append(Linear(in_dims[i + 1], in_dims[0], ng=1))
-            layers.append(
-                nn.Sequential(
-                    LinearRes(in_dims[0], in_dims[0], ng=1),
-                    nn.Linear(in_dims[0], 2 * out_dims[i]),
-                ))
+            if i != 0:
+                layers.append(
+                    nn.Sequential(
+                        LinearRes(in_dims[0], in_dims[0], ng=1),
+                        nn.Linear(in_dims[0], 2 * out_dims[i]),
+                    ))
+            else:
+                layers.append(nn.Identity())
         self.layers = nn.ModuleList(layers)
         self.m2a = M2A(config)
         self.a2a = A2A(config)
@@ -624,10 +627,12 @@ class TrajectoryDecoder(nn.Module):
                     key_point_features = self.m2a(key_point_features, agent_idcs, key_point_ctrs,
                                                   nodes, node_idcs, node_ctrs)
                     key_point_features = self.a2a(key_point_features, agent_idcs, key_point_ctrs)
-                key_points = self.layers[3 * i + 2](key_point_features)
-            key_points = rearrange(key_points, 'n (m1 m2 c) -> n m1 m2 c', m1=1, m2=self.out_dims[i], c=2)
-            pd_out.append(key_points)
-        return pd_out
+                if i != 0:
+                    key_points = self.layers[3 * i + 2](key_point_features)
+            if i != 0:
+                key_points = rearrange(key_points, 'n (m1 m2 c) -> n m1 m2 c', m1=1, m2=self.out_dims[i], c=2)
+                pd_out.append(key_points)
+        return pd_out, key_point_features
 
 
 class PyramidDecoder(nn.Module):
@@ -638,9 +643,14 @@ class PyramidDecoder(nn.Module):
 
         n_agent = config["n_agent"]
 
+        self.td = TrajectoryDecoder(config, [n_agent, 64, 32, 16], [30, 3, 1])
+
         pred = []
         for i in range(config["num_mods"]):
-            pred.append(TrajectoryDecoder(config, [n_agent, 64, 32, 16], [30, 3, 1]))
+            pred.append(nn.Sequential(
+                LinearRes(n_agent, n_agent),
+                nn.Linear(n_agent, config["num_preds"] * 2)
+            ))
         self.pred = nn.ModuleList(pred)
 
         self.att_dest = AttDest(n_agent)
@@ -649,14 +659,14 @@ class PyramidDecoder(nn.Module):
         )
 
     def forward(self, agents, agent_idcs, agent_ctrs, nodes, node_idcs, node_ctrs):
+        td_out, agents = self.td(agents, agent_idcs, agent_ctrs, nodes, node_idcs, node_ctrs)
+        key_points = torch.cat([td_out[0], td_out[1]], dim=-2)
+
         preds = []
         for i in range(len(self.pred)):
-            preds.append(self.pred[i](agents, agent_idcs, agent_ctrs, nodes, node_idcs, node_ctrs))
-        out = []
-        for i in range(3):
-            out.append(torch.cat([x[i] for x in preds], dim=1))
-        reg = out[-1]
-        key_points = torch.cat([out[0], out[1]], dim=-2)
+            preds.append(self.pred[i](agents))
+        reg = torch.cat([x.unsqueeze(1) for x in preds], 1)
+        reg = reg.view(reg.size()[0], reg.size()[1], -1, 2)
 
         for i in range(len(agent_idcs)):
             idcs = agent_idcs[i]
@@ -674,7 +684,6 @@ class PyramidDecoder(nn.Module):
         row_idcs = row_idcs.view(-1, 1).repeat(1, sort_idcs.size(1)).view(-1)
         sort_idcs = sort_idcs.view(-1)
         reg = reg[row_idcs, sort_idcs].view(cls.size(0), cls.size(1), -1, 2)
-        key_points = key_points[row_idcs, sort_idcs].view(cls.size(0), cls.size(1), -1, 2)
 
         out = dict()
         out['cls'], out['reg'], out['key_points'] = [], [], []
