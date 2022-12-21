@@ -24,9 +24,9 @@ class KAN(nn.Module):
 
     def forward(self, data):
         # construct agent feature
-        agents, agent_idcs, agent_locs = agent_gather(gpu(data["feats"], self.device), gpu(data["locs"], self.device))
-        agents, agent_ctrs = self.agent_encoder(agents, agent_locs)
-        agent_ctrs = get_agent_ctrs(agent_ctrs, gpu(data["ctrs"], self.device))
+        agents, agent_idcs = agent_gather(gpu(data["feats"], self.device))
+        agent_ctrs = gpu(data["ctrs"], self.device)
+        agents = self.agent_encoder(agents)
 
         # construct map features
         graph = graph_gather(to_long(gpu(data["graph"], self.device)))
@@ -55,23 +55,12 @@ class KAN(nn.Module):
         return out
 
 
-def get_agent_ctrs(agent_ctrs, orig_agent_ctrs):
-    count = 0
-    for i in range(len(orig_agent_ctrs)):
-        orig_agent_ctrs[i] += agent_ctrs[count: count + len(orig_agent_ctrs[i])]
-        count += len(orig_agent_ctrs[i])
-    return orig_agent_ctrs
-
-
-def agent_gather(agents, locs):
+def agent_gather(agents):
     batch_size = len(agents)
     num_agents = [len(x) for x in agents]
 
     agents = [x.transpose(1, 2) for x in agents]
     agents = torch.cat(agents, 0)
-
-    locs = [x.transpose(1, 2) for x in locs]
-    locs = torch.cat(locs, 0)
 
     agent_idcs = []
     count = 0
@@ -79,7 +68,7 @@ def agent_gather(agents, locs):
         idcs = torch.arange(count, count + num_agents[i]).to(agents.device)
         agent_idcs.append(idcs)
         count += num_agents[i]
-    return agents, agent_idcs, locs
+    return agents, agent_idcs
 
 
 def graph_gather(graphs):
@@ -127,6 +116,7 @@ class AgentEncoder(nn.Module):
     def __init__(self, config):
         super(AgentEncoder, self).__init__()
         self.config = config
+        norm = "GN"
         ng = 1
 
         n_in = 3
@@ -138,12 +128,12 @@ class AgentEncoder(nn.Module):
         for i in range(len(num_blocks)):
             group = []
             if i == 0:
-                group.append(blocks[i](n_in, n_out[i], ng=ng))
+                group.append(blocks[i](n_in, n_out[i], norm=norm, ng=ng))
             else:
-                group.append(blocks[i](n_in, n_out[i], stride=2, ng=ng))
+                group.append(blocks[i](n_in, n_out[i], stride=2, norm=norm, ng=ng))
 
             for j in range(1, num_blocks[i]):
-                group.append(blocks[i](n_out[i], n_out[i], ng=ng))
+                group.append(blocks[i](n_out[i], n_out[i], norm=norm, ng=ng))
             groups.append(nn.Sequential(*group))
             n_in = n_out[i]
         self.groups = nn.ModuleList(groups)
@@ -151,25 +141,12 @@ class AgentEncoder(nn.Module):
         n = config["n_agent"]
         lateral = []
         for i in range(len(n_out)):
-            lateral.append(Conv1d(n_out[i], n, ng=ng, act=False))
+            lateral.append(Conv1d(n_out[i], n, norm=norm, ng=ng, act=False))
         self.lateral = nn.ModuleList(lateral)
 
-        self.output = Res1d(n, n, ng=ng)
-        self.subgraph = Attention(n)
+        self.output = Res1d(n, n, norm=norm, ng=ng)
 
-        self.input = nn.Sequential(
-            nn.Linear(30, n),
-            nn.ReLU(inplace=True),
-            Linear(n, n, ng=ng, act=False),
-        )
-
-        self.ctrs = nn.Sequential(
-            LinearRes(30, 32, ng=1),
-            nn.Linear(32, 2)
-        )
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, agents, agent_locs):
+    def forward(self, agents):
         out = agents
 
         outputs = []
@@ -182,17 +159,8 @@ class AgentEncoder(nn.Module):
             out = F.interpolate(out, scale_factor=2, mode="linear", align_corners=False)
             out += self.lateral[i](outputs[i])
 
-        if self.subgraph is None:
-            out = self.output(out)[:, :, -1]
-        else:
-            out = self.output(out).transpose(1, 2)
-            out = self.subgraph(out)
-
-        agent_locs = rearrange(agent_locs[:, :, 10:], 'b c l -> b (c l)')
-        agent_ctrs = self.ctrs(agent_locs)
-        out += self.input(agent_locs)
-        out = self.relu(out)
-        return out, agent_ctrs
+        out = self.output(out)[:, :, -1]
+        return out
 
 
 class MapEncoder(nn.Module):
@@ -200,22 +168,19 @@ class MapEncoder(nn.Module):
         super(MapEncoder, self).__init__()
         self.config = config
         n_map = config["n_map"]
+        norm = "GN"
         ng = 1
 
-        in_dim = 2
-
         self.input = nn.Sequential(
-            nn.Linear(in_dim, n_map),
+            nn.Linear(2, n_map),
             nn.ReLU(inplace=True),
-            Linear(n_map, n_map, ng=ng, act=False),
+            Linear(n_map, n_map, norm=norm, ng=ng, act=False),
         )
         self.seg = nn.Sequential(
-            nn.Linear(in_dim, n_map),
+            nn.Linear(2, n_map),
             nn.ReLU(inplace=True),
-            Linear(n_map, n_map, ng=ng, act=False),
+            Linear(n_map, n_map, norm=norm, ng=ng, act=False),
         )
-
-        self.meta = Linear(n_map + 4, n_map, ng=ng)
 
         keys = ["ctr", "norm", "ctr2", "left", "right"]
         for i in range(config["num_scales"]):
@@ -231,7 +196,7 @@ class MapEncoder(nn.Module):
                 if key in ["norm"]:
                     fuse[key].append(nn.GroupNorm(gcd(ng, n_map), n_map))
                 elif key in ["ctr2"]:
-                    fuse[key].append(Linear(n_map, n_map, ng=ng, act=False))
+                    fuse[key].append(Linear(n_map, n_map, norm=norm, ng=ng, act=False))
                 else:
                     fuse[key].append(nn.Linear(n_map, n_map, bias=False))
 
@@ -258,16 +223,7 @@ class MapEncoder(nn.Module):
         feat += self.seg(graph["feats"])
         feat = self.relu(feat)
 
-        meta = torch.cat(
-            (
-                graph["turn"],
-                graph["control"].unsqueeze(1),
-                graph["intersect"].unsqueeze(1),
-            ),
-            1,
-        )
-        feat = self.meta(torch.cat((feat, meta), 1))
-
+        """fuse map"""
         res = feat
         for i in range(len(self.fuse["ctr"])):
             temp = self.fuse["ctr"][i](feat)
@@ -309,13 +265,27 @@ class A2M(nn.Module):
         super(A2M, self).__init__()
         self.config = config
         n_map = config["n_map"]
+        norm = "GN"
+        ng = 1
 
+        """fuse meta, static, dyn"""
+        self.meta = Linear(n_map + 4, n_map, norm=norm, ng=ng)
         att = []
         for i in range(2):
             att.append(Att(n_map, config["n_agent"]))
         self.att = nn.ModuleList(att)
 
     def forward(self, feat, graph, agents, agent_idcs, agent_ctrs):
+        """meta, static and dyn fuse using attention"""
+        meta = torch.cat(
+            (
+                graph["turn"],
+                graph["control"].unsqueeze(1),
+                graph["intersect"].unsqueeze(1),
+            ),
+            1,
+        )
+        feat = self.meta(torch.cat((feat, meta), 1))
         for i in range(len(self.att)):
             feat = self.att[i](
                 feat,
@@ -334,9 +304,8 @@ class M2M(nn.Module):
         super(M2M, self).__init__()
         self.config = config
         n_map = config["n_map"]
+        norm = "GN"
         ng = 1
-
-        in_dim = 2
 
         keys = ["ctr", "norm", "ctr2", "left", "right"]
         for i in range(config["num_scales"]):
@@ -352,7 +321,7 @@ class M2M(nn.Module):
                 if key in ["norm"]:
                     fuse[key].append(nn.GroupNorm(gcd(ng, n_map), n_map))
                 elif key in ["ctr2"]:
-                    fuse[key].append(Linear(n_map, n_map, ng=ng, act=False))
+                    fuse[key].append(Linear(n_map, n_map, norm=norm, ng=ng, act=False))
                 else:
                     fuse[key].append(nn.Linear(n_map, n_map, bias=False))
 
@@ -362,6 +331,7 @@ class M2M(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, feat, graph):
+        """fuse map"""
         res = feat
         for i in range(len(self.fuse["ctr"])):
             temp = self.fuse["ctr"][i](feat)
@@ -455,30 +425,26 @@ class A2A(nn.Module):
 class Att(nn.Module):
     def __init__(self, n_agt, n_ctx):
         super(Att, self).__init__()
+        norm = "GN"
         ng = 1
-        self.n_heads = 6
-        self.scale = n_ctx ** -0.5
 
         self.dist = nn.Sequential(
             nn.Linear(2, n_ctx),
             nn.ReLU(inplace=True),
-            Linear(n_ctx, n_ctx, ng=ng),
+            Linear(n_ctx, n_ctx, norm=norm, ng=ng),
         )
 
-        self.to_q = Linear(n_agt, self.n_heads * n_ctx, ng=ng, act=False)
-        self.to_k = Linear(n_agt, self.n_heads * n_ctx, ng=ng, act=False)
-        self.to_v = Linear(n_agt, self.n_heads * n_ctx, ng=ng, act=True)
-        self.sigmoid = nn.Sigmoid()
+        self.query = Linear(n_agt, n_ctx, norm=norm, ng=ng)
 
-        self.agt = nn.Linear(n_agt, n_agt, bias=False)
-        self.norm = nn.GroupNorm(ng, n_agt)
-        self.linear = Linear(n_agt, n_agt, ng=ng, act=False)
-        self.relu = nn.ReLU(inplace=True)
-
-        self.to_out = nn.Sequential(
-            Linear(self.n_heads * n_ctx, n_agt, ng=ng),
+        self.ctx = nn.Sequential(
+            Linear(3 * n_ctx, n_agt, norm=norm, ng=ng),
             nn.Linear(n_agt, n_agt, bias=False),
         )
+
+        self.agt = nn.Linear(n_agt, n_agt, bias=False)
+        self.norm = nn.GroupNorm(gcd(ng, n_agt), n_agt)
+        self.linear = Linear(n_agt, n_agt, norm=norm, ng=ng, act=False)
+        self.relu = nn.ReLU(inplace=True)
 
     def forward(self, agts, agt_idcs, agt_ctrs, ctx, ctx_idcs, ctx_ctrs, dist_th):
         res = agts
@@ -514,21 +480,14 @@ class Att(nn.Module):
         dist = agt_ctrs[hi] - ctx_ctrs[wi]
         dist = self.dist(dist)
 
-        q = self.relu(self.to_q(agts[hi] + dist))
-        k = self.relu(self.to_k(ctx[wi] + dist))
-        v = self.to_v(ctx[wi])
+        query = self.query(agts[hi])
 
-        query, key, value = map(lambda t: rearrange(t, "n (h d) -> n h d", h=self.n_heads).unsqueeze(-2), [q, k, v])
-
-        gates = torch.matmul(query, key.transpose(-1, -2)) * self.scale
-        gates = self.sigmoid(gates)
-
-        out = torch.matmul(gates, value).squeeze(-2)
-        out = rearrange(out, "n h d -> n (h d)")
-        out = self.to_out(out)
+        ctx = ctx[wi]
+        ctx = torch.cat((dist, query, ctx), 1)
+        ctx = self.ctx(ctx)
 
         agts = self.agt(agts)
-        agts.index_add_(0, hi, out)
+        agts.index_add_(0, hi, ctx)
         agts = self.norm(agts)
         agts = self.relu(agts)
 
@@ -561,19 +520,20 @@ class Attention(nn.Module):
 class AttDest(nn.Module):
     def __init__(self, n_agt):
         super(AttDest, self).__init__()
+        norm = "GN"
         ng = 1
 
         self.dist = nn.Sequential(
             nn.Linear(2, n_agt),
             nn.ReLU(inplace=True),
-            Linear(n_agt, n_agt, ng=ng),
+            Linear(n_agt, n_agt, norm=norm, ng=ng),
         )
 
-        self.agt = Linear(2 * n_agt, n_agt, ng=ng)
+        self.agt = Linear(2 * n_agt, n_agt, norm=norm, ng=ng)
 
     def forward(self, agts, agt_ctrs, dest_ctrs):
-        n_agt = agts.size()[1]
-        num_mods = dest_ctrs.size()[1]
+        n_agt = agts.size(1)
+        num_mods = dest_ctrs.size(1)
 
         dist = (agt_ctrs.unsqueeze(1) - dest_ctrs).view(-1, 2)
         dist = self.dist(dist)
@@ -589,14 +549,17 @@ class TrajectoryDecoder(nn.Module):
         super(TrajectoryDecoder, self).__init__()
         self.config = config
         self.out_dims = out_dims
+
+        ng = 1
+        norm = "GN"
         layers = []
         for i in range(3):
-            layers.append(Linear(in_dims[i], in_dims[i + 1], ng=1))
-            layers.append(Linear(in_dims[i + 1], in_dims[0], ng=1))
+            layers.append(Linear(in_dims[i], in_dims[i + 1], norm=norm, ng=ng))
+            layers.append(Linear(in_dims[i + 1], in_dims[0], norm=norm, ng=ng))
             if i != 0:
                 layers.append(
                     nn.Sequential(
-                        LinearRes(in_dims[0], in_dims[0], ng=1),
+                        LinearRes(in_dims[0], in_dims[0], norm=norm, ng=ng),
                         nn.Linear(in_dims[0], 2 * out_dims[i]),
                     ))
             else:
@@ -640,6 +603,7 @@ class PyramidDecoder(nn.Module):
         super(PyramidDecoder, self).__init__()
         self.config = config
         ng = 1
+        norm = "GN"
 
         n_agent = config["n_agent"]
 
@@ -648,14 +612,14 @@ class PyramidDecoder(nn.Module):
         pred = []
         for i in range(config["num_mods"]):
             pred.append(nn.Sequential(
-                LinearRes(n_agent, n_agent),
+                LinearRes(n_agent, n_agent, norm=norm, ng=ng),
                 nn.Linear(n_agent, config["num_preds"] * 2)
             ))
         self.pred = nn.ModuleList(pred)
 
         self.att_dest = AttDest(n_agent)
         self.cls = nn.Sequential(
-            LinearRes(n_agent, n_agent, ng=ng), nn.Linear(n_agent, 1)
+            LinearRes(n_agent, n_agent, norm=norm, ng=ng), nn.Linear(n_agent, 1)
         )
 
     def forward(self, agents, agent_idcs, agent_ctrs, nodes, node_idcs, node_ctrs):
@@ -696,11 +660,20 @@ class PyramidDecoder(nn.Module):
 
 
 class Conv1d(nn.Module):
-    def __init__(self, n_in, n_out, kernel_size=3, stride=1, ng=1, act=True):
+    def __init__(self, n_in, n_out, kernel_size=3, stride=1, norm='GN', ng=32, act=True):
         super(Conv1d, self).__init__()
+        assert (norm in ['GN', 'BN', 'SyncBN'])
+
         self.conv = nn.Conv1d(n_in, n_out, kernel_size=kernel_size, padding=(int(kernel_size) - 1) // 2, stride=stride,
                               bias=False)
-        self.norm = nn.GroupNorm(ng, n_out)
+
+        if norm == 'GN':
+            self.norm = nn.GroupNorm(gcd(ng, n_out), n_out)
+        elif norm == 'BN':
+            self.norm = nn.BatchNorm1d(n_out)
+        else:
+            exit('SyncBN has not been added!')
+
         self.relu = nn.ReLU(inplace=True)
         self.act = act
 
@@ -713,10 +686,19 @@ class Conv1d(nn.Module):
 
 
 class Linear(nn.Module):
-    def __init__(self, n_in, n_out, ng=1, act=True):
+    def __init__(self, n_in, n_out, norm='GN', ng=32, act=True):
         super(Linear, self).__init__()
+        assert (norm in ['GN', 'BN', 'SyncBN'])
+
         self.linear = nn.Linear(n_in, n_out, bias=False)
-        self.norm = nn.GroupNorm(ng, n_out)
+
+        if norm == 'GN':
+            self.norm = nn.GroupNorm(gcd(ng, n_out), n_out)
+        elif norm == 'BN':
+            self.norm = nn.BatchNorm1d(n_out)
+        else:
+            exit('SyncBN has not been added!')
+
         self.relu = nn.ReLU(inplace=True)
         self.act = act
 
@@ -729,20 +711,35 @@ class Linear(nn.Module):
 
 
 class Res1d(nn.Module):
-    def __init__(self, n_in, n_out, kernel_size=3, stride=1, ng=1, act=True):
+    def __init__(self, n_in, n_out, kernel_size=3, stride=1, norm='GN', ng=32, act=True):
         super(Res1d, self).__init__()
+        assert(norm in ['GN', 'BN', 'SyncBN'])
         padding = (int(kernel_size) - 1) // 2
         self.conv1 = nn.Conv1d(n_in, n_out, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         self.conv2 = nn.Conv1d(n_out, n_out, kernel_size=kernel_size, padding=padding, bias=False)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU(inplace = True)
 
-        self.bn1 = nn.GroupNorm(ng, n_out)
-        self.bn2 = nn.GroupNorm(ng, n_out)
+        # All use name bn1 and bn2 to load imagenet pretrained weights
+        if norm == 'GN':
+            self.bn1 = nn.GroupNorm(gcd(ng, n_out), n_out)
+            self.bn2 = nn.GroupNorm(gcd(ng, n_out), n_out)
+        elif norm == 'BN':
+            self.bn1 = nn.BatchNorm1d(n_out)
+            self.bn2 = nn.BatchNorm1d(n_out)
+        else:
+            exit('SyncBN has not been added!')
 
         if stride != 1 or n_out != n_in:
-            self.downsample = nn.Sequential(
-                nn.Conv1d(n_in, n_out, kernel_size=1, stride=stride, bias=False),
-                nn.GroupNorm(ng, n_out))
+            if norm == 'GN':
+                self.downsample = nn.Sequential(
+                        nn.Conv1d(n_in, n_out, kernel_size=1, stride=stride, bias=False),
+                        nn.GroupNorm(gcd(ng, n_out), n_out))
+            elif norm == 'BN':
+                self.downsample = nn.Sequential(
+                        nn.Conv1d(n_in, n_out, kernel_size=1, stride=stride, bias=False),
+                        nn.BatchNorm1d(n_out))
+            else:
+                exit('SyncBN has not been added!')
         else:
             self.downsample = None
 
@@ -765,19 +762,34 @@ class Res1d(nn.Module):
 
 
 class LinearRes(nn.Module):
-    def __init__(self, n_in, n_out, ng=1):
+    def __init__(self, n_in, n_out, norm='GN', ng=32):
         super(LinearRes, self).__init__()
+        assert(norm in ['GN', 'BN', 'SyncBN'])
+
         self.linear1 = nn.Linear(n_in, n_out, bias=False)
         self.linear2 = nn.Linear(n_out, n_out, bias=False)
         self.relu = nn.ReLU(inplace=True)
 
-        self.norm1 = nn.GroupNorm(ng, n_out)
-        self.norm2 = nn.GroupNorm(ng, n_out)
+        if norm == 'GN':
+            self.norm1 = nn.GroupNorm(gcd(ng, n_out), n_out)
+            self.norm2 = nn.GroupNorm(gcd(ng, n_out), n_out)
+        elif norm == 'BN':
+            self.norm1 = nn.BatchNorm1d(n_out)
+            self.norm2 = nn.BatchNorm1d(n_out)
+        else:
+            exit('SyncBN has not been added!')
 
         if n_in != n_out:
-            self.transform = nn.Sequential(
-                nn.Linear(n_in, n_out, bias=False),
-                nn.GroupNorm(ng, n_out))
+            if norm == 'GN':
+                self.transform = nn.Sequential(
+                    nn.Linear(n_in, n_out, bias=False),
+                    nn.GroupNorm(gcd(ng, n_out), n_out))
+            elif norm == 'BN':
+                self.transform = nn.Sequential(
+                    nn.Linear(n_in, n_out, bias=False),
+                    nn.BatchNorm1d(n_out))
+            else:
+                exit('SyncBN has not been added!')
         else:
             self.transform = None
 
