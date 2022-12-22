@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from fractions import gcd
 from einops import rearrange
 from utils.data_utils import gpu, to_long
+from collections import defaultdict
 
 
 class KAN(nn.Module):
@@ -51,6 +52,7 @@ class KAN(nn.Module):
                 out["reg"][i] = torch.cat((out["reg"][i][..., 1:], out["reg"][i][..., :1]), dim=-1)
                 out['key_points'][i] = torch.cat((out["key_points"][i][..., 1:], out["key_points"][i][..., :1]), dim=-1)
             out["reg"][i] = torch.matmul(out["reg"][i], rot[i]) + orig[i].view(1, 1, 1, -1)
+            out['key_point'][i] = torch.matmul(out['key_point'][i], rot[i]) + orig[i]
             out['key_points'][i] = torch.matmul(out['key_points'][i], rot[i]) + orig[i].view(1, 1, 1, -1)
         return out
 
@@ -544,70 +546,101 @@ class AttDest(nn.Module):
         return agts
 
 
-class TrajectoryDecoder(nn.Module):
-    def __init__(self, config, in_dims, out_dims):
-        super(TrajectoryDecoder, self).__init__()
+class SingleKeyPointDecoder(nn.Module):
+    def __init__(self, config):
+        super(SingleKeyPointDecoder, self).__init__()
         self.config = config
-        self.out_dims = out_dims
 
         ng = 1
         norm = "GN"
-        layers = []
-        for i in range(3):
-            layers.append(Linear(in_dims[i], in_dims[i + 1], norm=norm, ng=ng))
-            layers.append(Linear(in_dims[i + 1], in_dims[0], norm=norm, ng=ng))
-            if i != 0:
-                layers.append(
-                    nn.Sequential(
-                        LinearRes(in_dims[0], in_dims[0], norm=norm, ng=ng),
-                        nn.Linear(in_dims[0], 2 * out_dims[i]),
-                    ))
-            else:
-                layers.append(nn.Identity())
-        self.layers = nn.ModuleList(layers)
+        n_agent = config["n_agent"]
+
+        self.pred = nn.Sequential(
+            LinearRes(n_agent, n_agent, norm=norm, ng=ng),
+            nn.Linear(n_agent, 2)
+        )
+
+        self.m2a = M2A(config)
+
+    def forward(self, agents, agent_idcs, agent_ctrs, nodes, node_idcs, node_ctrs):
+        key_point = self.pred(agents)
+        key_point_ctrs = []
+        for k in range(len(agent_idcs)):
+            idcs = agent_idcs[k]
+            ctrs = agent_ctrs[k]
+            key_point[idcs] = key_point[idcs] + ctrs
+            key_point_ctrs.append(key_point[idcs])
+        agents = self.m2a(agents, agent_idcs, key_point_ctrs, nodes, node_idcs, node_ctrs)
+        return agents, key_point
+
+
+class MultipleKeyPointsDecoder(nn.Module):
+    def __init__(self, config):
+        super(MultipleKeyPointsDecoder, self).__init__()
+        self.config = config
+        self.n_key_points = config["n_key_points"]
+        ng = 1
+        norm = "GN"
+        n_agent = config["n_agent"]
+
+        pred = []
+        for i in range(self.n_key_points):
+            pred.append(
+                nn.Sequential(
+                    LinearRes(n_agent, n_agent, norm=norm, ng=ng),
+                    nn.Linear(n_agent, 2))
+            )
+        self.pred = nn.ModuleList(pred)
+
+        self.att_dest = AttDest(n_agent)
+        self.cls = nn.Sequential(
+            LinearRes(n_agent, n_agent, norm=norm, ng=ng), nn.Linear(n_agent, 1)
+        )
+
         self.m2a = M2A(config)
         self.a2a = A2A(config)
 
     def forward(self, agents, agent_idcs, agent_ctrs, nodes, node_idcs, node_ctrs):
-        pd_in, pd_out = [], []
-        res = agents
-        for i in range(3):
-            res = self.layers[3 * i](res)
-            pd_in.append(res)
-        for i in range(3)[::-1]:
-            key_point_features = self.layers[3 * i + 1](pd_in[i])
-            if i == 2:
-                key_points = self.layers[3 * i + 2](key_point_features)
-            else:
-                pre_key_points = pd_out[-1]
-                for j in range(pre_key_points.shape[-2]):
-                    key_point_ctrs = []
-                    for k in range(len(agent_idcs)):
-                        idcs = agent_idcs[k]
-                        ctrs = agent_ctrs[k]
-                        key_point_ctrs.append(pre_key_points[idcs, 0, j] + ctrs)
+        preds = []
+        for i in range(len(self.pred)):
+            preds.append(self.pred[i](agents))
+        key_points = torch.cat([x.unsqueeze(1) for x in preds], 1)
+        key_points = key_points.view(key_points.size()[0], key_points.size()[1], -1, 2)
 
-                    key_point_features = self.m2a(key_point_features, agent_idcs, key_point_ctrs,
-                                                  nodes, node_idcs, node_ctrs)
-                    key_point_features = self.a2a(key_point_features, agent_idcs, key_point_ctrs)
-                if i != 0:
-                    key_points = self.layers[3 * i + 2](key_point_features)
-            if i != 0:
-                key_points = rearrange(key_points, 'n (m1 m2 c) -> n m1 m2 c', m1=1, m2=self.out_dims[i], c=2)
-                pd_out.append(key_points)
-        return pd_out, key_point_features
+        for i in range(len(agent_idcs)):
+            idcs = agent_idcs[i]
+            ctrs = agent_ctrs[i].view(-1, 1, 1, 2)
+            key_points[idcs] = key_points[idcs] + ctrs
+
+        dest_ctrs = key_points[:, :, -1].detach()
+        feats = self.att_dest(agents, torch.cat(agent_ctrs, 0), dest_ctrs)
+        cls1 = self.cls(feats).view(-1, self.n_key_points)
+        cls = torch.softmax(cls1, dim=-1)
+
+        cls, sort_idcs = cls.sort(1, descending=True)
+        row_idcs = torch.arange(len(sort_idcs)).long().to(sort_idcs.device)
+        row_idcs = row_idcs.view(-1, 1).repeat(1, sort_idcs.size(1)).view(-1)
+        sort_idcs = sort_idcs.view(-1)
+        key_points = key_points[row_idcs, sort_idcs].view(cls.size(0), cls.size(1), -1, 2)
+
+        key_point_ctrs = []
+        for i in range(len(agent_idcs)):
+            idcs = agent_idcs[i]
+            key_point_ctrs.append(key_points[idcs, 0, 0])
+
+        agents = self.m2a(agents, agent_idcs, key_point_ctrs, nodes, node_idcs, node_ctrs)
+        agents = self.a2a(agents, agent_idcs, key_point_ctrs)
+        return agents, key_points, cls
 
 
-class PyramidDecoder(nn.Module):
+class TrajectoryDecoder(nn.Module):
     def __init__(self, config):
-        super(PyramidDecoder, self).__init__()
+        super(TrajectoryDecoder, self).__init__()
         self.config = config
+
         ng = 1
         norm = "GN"
-
         n_agent = config["n_agent"]
-
-        self.td = TrajectoryDecoder(config, [n_agent, 64, 32, 16], [30, 3, 1])
 
         pred = []
         for i in range(config["num_mods"]):
@@ -622,10 +655,7 @@ class PyramidDecoder(nn.Module):
             LinearRes(n_agent, n_agent, norm=norm, ng=ng), nn.Linear(n_agent, 1)
         )
 
-    def forward(self, agents, agent_idcs, agent_ctrs, nodes, node_idcs, node_ctrs):
-        td_out, agents = self.td(agents, agent_idcs, agent_ctrs, nodes, node_idcs, node_ctrs)
-        key_points = torch.cat([td_out[0], td_out[1]], dim=-2)
-
+    def forward(self, agents, agent_idcs, agent_ctrs):
         preds = []
         for i in range(len(self.pred)):
             preds.append(self.pred[i](agents))
@@ -636,7 +666,6 @@ class PyramidDecoder(nn.Module):
             idcs = agent_idcs[i]
             ctrs = agent_ctrs[i].view(-1, 1, 1, 2)
             reg[idcs] = reg[idcs] + ctrs
-            key_points[idcs] = key_points[idcs] + ctrs
 
         dest_ctrs = reg[:, :, -1].detach()
         feats = self.att_dest(agents, torch.cat(agent_ctrs, 0), dest_ctrs)
@@ -648,14 +677,32 @@ class PyramidDecoder(nn.Module):
         row_idcs = row_idcs.view(-1, 1).repeat(1, sort_idcs.size(1)).view(-1)
         sort_idcs = sort_idcs.view(-1)
         reg = reg[row_idcs, sort_idcs].view(cls.size(0), cls.size(1), -1, 2)
+        return reg, cls
 
-        out = dict()
-        out['cls'], out['reg'], out['key_points'] = [], [], []
+
+class PyramidDecoder(nn.Module):
+    def __init__(self, config):
+        super(PyramidDecoder, self).__init__()
+        self.config = config
+
+        self.single_key_point_decoder = SingleKeyPointDecoder(config)
+        self.multiple_key_points_decoder = MultipleKeyPointsDecoder(config)
+        self.trajectory_decoder = TrajectoryDecoder(config)
+
+    def forward(self, agents, agent_idcs, agent_ctrs, nodes, node_idcs, node_ctrs):
+        agents, key_point = self.single_key_point_decoder(agents, agent_idcs, agent_ctrs, nodes, node_idcs, node_ctrs)
+        agents, key_points, key_point_cls = self.multiple_key_points_decoder(
+            agents, agent_idcs, agent_ctrs, nodes, node_idcs, node_ctrs)
+        reg, cls = self.trajectory_decoder(agents, agent_idcs, agent_ctrs)
+
+        out = defaultdict(list)
         for i in range(len(agent_idcs)):
             idcs = agent_idcs[i]
             out['cls'].append(cls[idcs])
             out['reg'].append(reg[idcs])
+            out['key_point'].append(key_point[idcs])
             out['key_points'].append(key_points[idcs])
+            out['key_point_cls'].append(key_point_cls[idcs])
         return out
 
 

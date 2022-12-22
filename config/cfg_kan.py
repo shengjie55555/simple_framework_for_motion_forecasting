@@ -9,17 +9,22 @@ config["n_agent"] = 128
 config["n_map"] = 128
 
 config["num_mods"] = 6
+config["n_key_points"] = 3
 config["num_preds"] = 30
 config["agent2map_dist"] = 7.0
-config["map2agent_dist"] = 15.0
+config["map2agent_dist"] = 6.0
 config["agent2agent_dist"] = 100.0
-config["key_points"] = [9, 19]
+config["key_point"] = 14
 config["cls_th"] = 2.0
 config["cls_ignore"] = 0.2
-config["cls_coef"] = 1.0
-config["reg_coef"] = 1.0
-config["key_points_coef"] = 1.0
 config["mgn"] = 0.2
+
+config["cls_coef"] = 2.0
+config["reg_coef"] = 1.0
+config["key_point_coef"] = 0.02
+config["key_points_coef"] = 0.2
+config["key_point_cls_coef"] = 1
+config["reg_end_coef"] = 1
 
 config["num_scales"] = 6
 
@@ -57,7 +62,8 @@ config["images"] = os.path.join("results", model_name, "images/")
 config["train_log"] = os.path.join("../results", model_name, "train_log.csv")
 config["val_log"] = os.path.join("../results", model_name, "val_log.csv")
 config["log_dir"] = "logs/" + model_name
-config["log_columns"] = ["epoch", "cls_loss", "reg_loss", "key_points_loss", "loss",
+config["log_columns"] = ["epoch", "cls_loss", "reg_loss", "key_point_loss", "key_points_loss", "key_point_cls",
+                         "reg_end_loss", "loss",
                          "minade_1", "minfde_1", "mr_1", "brier_fde_1",
                          "minade_k", "minfde_k", "mr_k", "brier_fde_k"]
 

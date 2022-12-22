@@ -182,6 +182,25 @@ class KANAverageLoss(ATDSAverageLoss):
     def __init__(self):
         super(KANAverageLoss, self).__init__()
 
+    def get(self):
+        cls = self.loss_out["cls_loss"] / (self.loss_out["num_cls"] + 1e-10)
+        reg = self.loss_out["reg_loss"] / (self.loss_out["num_reg"] + 1e-10)
+        key_point = self.loss_out["key_point_loss"] / (self.loss_out["num_key_point"] + 1e-10)
+        key_points = self.loss_out["key_points_loss"] / (self.loss_out["num_key_points"] + 1e-10)
+        key_point_cls = self.loss_out["key_point_cls_loss"] / (self.loss_out["num_key_point_cls"] + 1e-10)
+        reg_end = self.loss_out["reg_end_loss"] / (self.loss_out["num_reg_end"] + 1e-10)
+        loss = cls + reg + key_point + key_points + key_point_cls + reg_end
+        loss_out = {
+            "cls_loss": cls,
+            "reg_loss": reg,
+            "key_point": key_point,
+            "key_points": key_points,
+            "key_point_cls": key_point_cls,
+            "reg_end": reg_end,
+            "loss": loss
+        }
+        return loss_out
+
 
 class KANAverageMetrics(ATDSAverageMetrics):
     def __init__(self, cfg):
