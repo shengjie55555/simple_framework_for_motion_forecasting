@@ -59,7 +59,7 @@ def load_prev_weights(net, path, cfg, opt=None, rank=0, is_ddp=False):
         print(f'loaded parameters {len(loaded_modules)}/{len(state_dict)}')
 
 
-def update_cfg(args, cfg, is_eval=False):
+def update_cfg(args, cfg, is_eval=False, is_test=False):
     if is_eval:
         model_name = args.model_name
         cfg["val_batch_size"] = args.val_batch_size
@@ -68,6 +68,15 @@ def update_cfg(args, cfg, is_eval=False):
         cfg["images"] = os.path.join("results", model_name, "images/")
         cfg["competition_files"] = os.path.join("results", model_name, "competition/")
         cfg["processed_val"] = args.val_dir
+        return cfg
+    if is_test:
+        model_name = args.model_name
+        cfg["test_batch_size"] = args.test_batch_size
+        cfg["save_dir"] = os.path.join("results", model_name, "weights/")
+        cfg["cfg"] = os.path.join("results", model_name, "cfg.txt")
+        cfg["images"] = os.path.join("results", model_name, "images/")
+        cfg["competition_files"] = os.path.join("results", model_name, "competition/")
+        cfg["processed_test"] = args.test_dir
         return cfg
     model_name = args.model.lower() + "_" + datetime.now().strftime("%Y%m%d_%H%M%S")
     cfg["epoch"] = args.train_epochs
