@@ -25,9 +25,9 @@ class KAN(nn.Module):
 
     def forward(self, data):
         # construct agent feature
-        agents, agent_idcs = agent_gather(gpu(data["feats"], self.device))
+        agents, agent_idcs, agent_locs = agent_gather(gpu(data["feats"], self.device), gpu(data["locs"], self.device))
         agent_ctrs = gpu(data["ctrs"], self.device)
-        agents = self.agent_encoder(agents)
+        agents = self.agent_encoder(agents, agent_locs)
 
         # construct map features
         graph = graph_gather(to_long(gpu(data["graph"], self.device)))
@@ -57,12 +57,15 @@ class KAN(nn.Module):
         return out
 
 
-def agent_gather(agents):
+def agent_gather(agents, locs):
     batch_size = len(agents)
     num_agents = [len(x) for x in agents]
 
     agents = [x.transpose(1, 2) for x in agents]
     agents = torch.cat(agents, 0)
+
+    locs = [x.transpose(1, 2) for x in locs]
+    agent_locs = torch.cat(locs, 0)
 
     agent_idcs = []
     count = 0
@@ -70,7 +73,7 @@ def agent_gather(agents):
         idcs = torch.arange(count, count + num_agents[i]).to(agents.device)
         agent_idcs.append(idcs)
         count += num_agents[i]
-    return agents, agent_idcs
+    return agents, agent_idcs, agent_locs
 
 
 def graph_gather(graphs):
@@ -148,7 +151,15 @@ class AgentEncoder(nn.Module):
 
         self.output = Res1d(n, n, norm=norm, ng=ng)
 
-    def forward(self, agents):
+        self.subgraph = Attention(n)
+        self.input = nn.Sequential(
+            nn.Linear(30, n),
+            nn.ReLU(inplace=True),
+            Linear(n, n, ng=ng, act=False),
+        )
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, agents, agent_locs):
         out = agents
 
         outputs = []
@@ -161,7 +172,11 @@ class AgentEncoder(nn.Module):
             out = F.interpolate(out, scale_factor=2, mode="linear", align_corners=False)
             out += self.lateral[i](outputs[i])
 
-        out = self.output(out)[:, :, -1]
+        out = self.output(out).transpose(1, 2)
+        out = self.subgraph(out)
+        agent_locs = rearrange(agent_locs[:, :, 10:], 'b c l -> b (c l)')
+        out += self.input(agent_locs)
+        out = self.relu(out)
         return out
 
 
