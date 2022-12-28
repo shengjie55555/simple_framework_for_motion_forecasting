@@ -15,9 +15,12 @@ class MHLD(nn.Module):
         self.device = device
         self.m2m_dist = m2m_dist
         self.m2a_dist = m2a_dist
+        self.a2m_dist = cfg["agent2map_dist"]
 
         self.agent_encoder = AgentEncoder(n_agt, n_out, n_agt_layer)
         self.map_encoder = MapEncoder(n_out, n_scales)
+        self.a2m = A2M(n_out)
+        self.m2m = LocalAtt(n_out, n_out)
         self.m2a = M2A(n_out)
         self.a2a = A2A(n_out)
         self.decoder = Decoder(n_out, num_mode, pred_len)
@@ -28,8 +31,10 @@ class MHLD(nn.Module):
         agents = self.agent_encoder(agents)
 
         graph = graph_gather(to_long(gpu(data["graph"], self.device)))
-        nodes, node_ids, node_ctrs = self.map_encoder(graph, self.m2m_dist, agent_ctrs)
+        nodes, node_ids, node_ctrs = self.map_encoder(graph)
 
+        nodes = self.a2m(nodes, node_ids, node_ctrs, agents, agent_ids, agent_ctrs, self.a2m_dist)
+        nodes = self.m2m(nodes, node_ids, node_ctrs, nodes, node_ids, node_ctrs, self.m2m_dist, agent_ctrs)
         agents = self.m2a(agents, agent_ids, agent_ctrs, nodes, node_ids, node_ctrs, self.m2a_dist)
         agents = self.a2a(agents, agent_ids)
 
@@ -147,7 +152,7 @@ class MapEncoder(nn.Module):
 
         self.meta = Linear(n_out + 4, n_out)
 
-        keys = ["ctr", "norm", "ctr2"]
+        keys = ["ctr", "norm", "ctr2", "left", "right"]
         for i in range(n_scales):
             keys.append("pre" + str(i))
             keys.append("suc" + str(i))
@@ -167,12 +172,10 @@ class MapEncoder(nn.Module):
 
         for key in fuse:
             fuse[key] = nn.ModuleList(fuse[key])
-        fuse["graph_attention"] = LocalAtt(n_out, n_out)
-
         self.fuse = nn.ModuleDict(fuse)
         self.relu = nn.ReLU(inplace=True)
 
-    def forward(self, graph, m2m_dist, roi_ctrs):
+    def forward(self, graph):
         ctrs = torch.cat(graph["ctrs"], 0)
         feat = self.input(ctrs)
         feat += self.seg(graph["feats"])
@@ -201,10 +204,18 @@ class MapEncoder(nn.Module):
                         self.fuse[key][i](feat[graph[k1][k2]["v"]]),
                     )
 
-            temp = self.fuse["graph_attention"](
-                temp, graph["idcs"], graph["ctrs"],
-                temp, graph["idcs"], graph["ctrs"], m2m_dist, roi_ctrs
-            )
+            if len(graph["left"]["u"] > 0):
+                temp.index_add_(
+                    0,
+                    graph["left"]["u"],
+                    self.fuse["left"][i](feat[graph["left"]["v"]]),
+                )
+            if len(graph["right"]["u"] > 0):
+                temp.index_add_(
+                    0,
+                    graph["right"]["u"],
+                    self.fuse["right"][i](feat[graph["right"]["v"]]),
+                )
 
             feat = self.fuse["norm"][i](temp)
             feat = self.relu(feat)
@@ -214,6 +225,22 @@ class MapEncoder(nn.Module):
             feat = self.relu(feat)
             res = feat
         return feat, graph["idcs"], graph["ctrs"]
+
+
+class A2M(nn.Module):
+    def __init__(self, n_out):
+        super(A2M, self).__init__()
+        att = []
+        for i in range(2):
+            att.append(Att(n_out, n_out))
+        self.att = nn.ModuleList(att)
+
+    def forward(self, nodes, node_ids, node_ctrs,
+                agents, agent_ids, agent_ctrs, a2m_dist):
+        for i in range(len(self.att)):
+            agents = self.att[i](nodes, node_ids, node_ctrs,
+                                 agents, agent_ids, agent_ctrs, a2m_dist)
+        return nodes
 
 
 class M2A(nn.Module):
